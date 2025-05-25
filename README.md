@@ -1,0 +1,1 @@
+This repository contains the raw and processed data, along with code used for all analysis for the paper "Are mycoheterotrophs actually parasites? Proximity-based ITS metabarcoding of fungal communities associated with Sarcodes sanguinea and Corallorhiza striata" by Christopher P. Bivins and Alija B. Mujic
