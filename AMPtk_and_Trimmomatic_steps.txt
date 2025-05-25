@@ -1,0 +1,45 @@
+# Do all your work in the TELEMECO-DATA directory with my name!!! There is limited space on the home directory. Always cd into the proper working directory /media/telemeco-lab/DATA/mujic-lab/cbivins/
+cd /media/telemeco-lab/DATA/mujic-lab/cbivins/
+
+
+/home/mujica/scripts/make_Trimmomatic_forAMPTK.pl
+
+# Copy the script to my working directory 
+cp /home/mujica/scripts/make_Trimmomatic_forAMPtk.pl /home/cbivins/
+
+### Getting the sequences trimmed - Trimmomatic
+
+### These are commands using the trimmotic perl script, which will include concatenation steps. 
+
+
+make_Trimmomatic_forAMPtk.pl -d renamedfiles/ -p /media/telemeco-lab/DATA/mujic-lab/cbivins/scripts/Trimmomatic-0.39/trimmomatic-0.39.jar -s 4:20 -m 100 -n 8
+
+# Make the script executable (chmod +x 'scriptname') then ./'scriptname'
+
+# After running the script, move all the "ALL" files and all the "R2_paired" files into a new directory named "my_Trimmomatic_OUTPUT_foramptk_all". This directory now contains all of the files that have passed our filtering criteria
+
+mv *ALL* home/cbivins/my_Trimmomatic_OUTPUT_foramptk_all
+mv *R2_paired* home/cbivins/my_Trimmomatic_OUTPUT_foramptk_all
+
+
+### AMPTK
+
+# Step 1 (pre-processing) 
+
+amptk illumina -i /media/telemeco-lab/DATA/mujic-lab/cbivins/trimmomaticoutputs/my_Trimmomatic_OUTPUT_foramptk_all -o ITS -f ITS1-F -r ITS2 -l 350 -p on --min_len 150 --reads paired --rescue_forward on --require_primer off --cleanup
+
+ 
+
+
+# Step 2(cluster)
+
+amptk cluster -i ITS.demux.fq.gz -o clusterITS --uchime_ref ITS
+# later, if it's still running type screen -r 398891.chriscluster
+
+# Step 3 (filter OTUs)
+
+amptk filter -i clusterITS.otu_table.txt -f clusterITS.cluster.otus.fa -o filterITS -p 0.005 --min_reads_otu 10
+
+# Step 4 (assign taxonomy)
+
+amptk taxonomy -i filterITS.final.txt -f filterITS.filtered.otus.fa -o taxonomyITS -m ITS.mapping_file_meta.txt -d ITS1 --tax_filter Fungi 

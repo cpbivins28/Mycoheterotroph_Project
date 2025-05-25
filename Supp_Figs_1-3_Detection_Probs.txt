@@ -1,0 +1,88 @@
+#######
+C. STRIATA
+#######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load data
+data = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Detection_Probabilities/Corallorhiza/otus_lower_detection_prob_corallorhiza.csv')
+
+# Calculate detection probability difference
+data['Difference'] = data['NonRootball'] - data['Rootball']
+
+
+# Supp. Fig 1
+plt.figure(figsize=(8, 6))
+plt.scatter(detection_prob_comparison['NonRootball'], detection_prob_comparison['Rootball'], alpha=0.7)
+plt.plot([0, 1], [0, 1], color='red', linestyle='--')
+plt.xlabel('Detection Probability in Non-Rootball Samples')
+plt.ylabel('Detection Probability in Rootball Samples')
+plt.title('Detection Probability Comparison for Corallorhiza')
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("corallorhiza_detection_probabilities.svg", format="svg")
+plt.show()
+
+
+# Supp. Fig 2 - Boxplot
+plt.figure(figsize=(8, 6))
+plt.boxplot([data['Rootball'], data['NonRootball']], labels=['Rootball', 'NonRootball'])
+plt.title("Detection Probability Comparison")
+plt.ylabel("Detection Probability")
+plt.savefig('corallorhiza_detection_probability_comparison_boxplot.svg', format='svg')
+plt.show()
+
+
+# Supp.Fig_3 - Histogram of differences
+plt.figure(figsize=(10, 6))
+plt.hist(data['Difference'], bins=20, edgecolor='black')
+plt.title("Histogram of Detection Probability Differences (NonRootball - Rootball)")
+plt.xlabel("Detection Probability Difference")
+plt.ylabel("Frequency")
+plt.savefig('corallorhiza_detection_probability_difference_histogram.svg', format='svg')
+plt.show()
+
+
+#######
+S. SANGUINEA
+#######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load data
+data = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Detection_Probabilities/Sarcodes/otus_lower_detection_prob_sarcodes.csv')
+
+# Calculate detection probability difference
+data['Difference'] = data['NonRootball'] - data['Rootball']
+
+# Supp. Fig 1
+# Plot detection probabilities
+plt.figure(figsize=(8, 6))
+plt.scatter(detection_prob_comparison['NonRootball'], detection_prob_comparison['Rootball'])
+plt.plot([0, 1], [0, 1], color='red', linestyle='--')  # Reference line
+plt.xlabel('Detection Probability in Non-Rootball Samples')
+plt.ylabel('Detection Probability in Rootball Samples')
+plt.title('Detection Probability Comparison for Sarcodes')
+plt.grid(True)
+plt.savefig('sarcodes_detection_probabilities.svg', format='svg')
+plt.show()
+
+# Supp. Fig 2 - Boxplot
+plt.figure(figsize=(8, 6))
+plt.boxplot([data['Rootball'], data['NonRootball']], labels=['Rootball', 'NonRootball'])
+plt.title("Detection Probability Comparison")
+plt.ylabel("Detection Probability")
+plt.savefig('detection_probability_comparison_boxplot.svg', format='svg')
+plt.show()
+
+# Supp. Fig 3 - Histogram of differences
+plt.figure(figsize=(10, 6))
+plt.hist(data['Difference'], bins=20, edgecolor='black')
+plt.title("Histogram of Detection Probability Differences (NonRootball - Rootball)")
+plt.xlabel("Detection Probability Difference")
+plt.ylabel("Frequency")
+plt.savefig('detection_probability_difference_histogram.svg', format='svg')
+plt.show()
+

@@ -1,0 +1,495 @@
+########
+C. STRIATA - WITHIN-DISTANCE CLASS TURNOVER AND NESTEDNESS -NON-RANDOMIZED 
+########
+
+# File paths
+metadata_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv"
+otu_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv"
+guild_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv"
+
+# Load Data
+metadata <- read.csv(metadata_path)
+otu_table <- read.csv(otu_table_path, row.names = 1)
+guild_table <- read.csv(guild_table_path)
+
+# Filter for Ectomycorrhizal (ECM) Fungi
+ecm_otus <- guild_table %>%
+  filter(primary_lifestyle == "ectomycorrhizal") %>%
+  pull(OTU_ID)
+
+otu_ecm <- otu_table %>%
+  filter(row.names(otu_table) %in% ecm_otus)
+
+# Convert OTU Table to Presence/Absence
+otu_binary <- as.data.frame((otu_ecm > 0) * 1)
+
+# Filter Metadata for *Corallorhiza* Soil Samples
+# Replace "Sarcodes" with "Corallorhiza" and filter for soil samples
+corallorhiza_metadata <- metadata %>%
+  filter(MH_Host == "Corallorhiza" & Sample_Type == "Soil")
+
+# Ensure Sample_ID formatting matches between metadata and OTU table
+corallorhiza_metadata$Sample_ID <- gsub("-", ".", corallorhiza_metadata$Sample_ID)
+
+# Subset the OTU binary table to include only *Corallorhiza* samples
+otu_corallorhiza <- otu_binary[, colnames(otu_binary) %in% corallorhiza_metadata$Sample_ID]
+
+# Reorder metadata to match the columns in otu_corallorhiza
+corallorhiza_metadata <- corallorhiza_metadata[match(colnames(otu_corallorhiza), corallorhiza_metadata$Sample_ID), ]
+
+# Transpose the OTU table so rows represent samples, then add Distance
+otu_corallorhiza_with_distance <- data.frame(
+  Distance = corallorhiza_metadata$Distance,
+  t(otu_corallorhiza)
+)
+
+# Define a function to calculate beta diversity for each distance class
+calculate_beta_diversity <- function(distance_class, data) {
+  subset_data <- data[data$Distance == distance_class, -1]  # Exclude the Distance column
+  
+  if (nrow(subset_data) < 2) {
+    warning(paste("Not enough samples for Distance =", distance_class))
+    return(data.frame(
+      Distance = distance_class,
+      Turnover = NA,
+      Nestedness = NA,
+      TotalBetaDiversity = NA
+    ))
+  }
+  
+  # Convert the data to a matrix
+  subset_matrix <- as.matrix(subset_data)
+  
+  # Calculate beta diversity components
+  beta_result <- beta.multi(subset_matrix, index.family = "sorensen")
+  
+  return(data.frame(
+    Distance = distance_class,
+    Turnover = beta_result$beta.SIM,
+    Nestedness = beta_result$beta.SNE,
+    TotalBetaDiversity = beta_result$beta.SOR
+  ))
+}
+
+# Get unique distance classes
+distance_classes <- unique(otu_corallorhiza_with_distance$Distance)
+
+# Apply the function to each distance class
+beta_diversity_results <- do.call(
+  rbind,
+  lapply(distance_classes, calculate_beta_diversity, data = otu_corallorhiza_with_distance)
+)
+
+# Summarize metrics for each distance class
+summary_results_by_distance <- beta_diversity_results %>%
+  group_by(Distance) %>%
+  summarise(
+    MeanTurnover = mean(Turnover, na.rm = TRUE),
+    MeanNestedness = mean(Nestedness, na.rm = TRUE),
+    MeanTotalBetaDiversity = mean(TotalBetaDiversity, na.rm = TRUE)
+  )
+
+# Print the summary results by distance class
+cat("Summary Results by Distance Class:\n")
+print(summary_results_by_distance)
+
+# Save Results
+write.csv(
+  summary_results_by_distance,
+  "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Corallorhiza/Non_Randomized_Transects/distance_specific_beta_diversity_iterations.csv",
+  row.names = FALSE
+)
+
+
+########
+C. STRIATA - WITHIN-DISTANCE CLASS TURNOVER AND NESTEDNESS - RANDOMIZEDD 
+########
+
+# File paths
+metadata_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv"
+otu_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv"
+guild_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv"
+
+# Step 1: Load Data
+metadata <- read.csv(metadata_path)
+otu_table <- read.csv(otu_table_path, row.names = 1)
+guild_table <- read.csv(guild_table_path)
+
+# Step 2: Filter for Ectomycorrhizal (ECM) Fungi
+ecm_otus <- guild_table %>%
+  filter(primary_lifestyle == "ectomycorrhizal") %>%
+  pull(OTU_ID)
+
+otu_ecm <- otu_table %>%
+  filter(row.names(otu_table) %in% ecm_otus)
+
+# Step 3: Convert OTU Table to Presence/Absence
+otu_binary <- as.data.frame((otu_ecm > 0) * 1)
+
+# Step 4: Filter Metadata for *Corallorhiza* Soil Samples
+# Replace "Sarcodes" with "Corallorhiza"
+corallorhiza_metadata <- metadata %>%
+  filter(MH_Host == "Corallorhiza" & Sample_Type == "Soil")
+
+# Step 5: Define Subsampling Function
+subsample_transects <- function(metadata, n_per_class = 6) {
+  # Ensure n_per_class does not exceed available samples
+  subsampled <- metadata %>%
+    group_by(Distance) %>%
+    group_modify(~ {
+      current_n <- nrow(.x)
+      if (current_n < n_per_class) {
+        warning(paste("Not enough samples for Distance =", unique(.x$Distance), 
+                      ". Needed:", n_per_class, "Available:", current_n))
+        return(.x)
+      } else {
+        sample_n(.x, n_per_class)
+      }
+    }) %>%
+    ungroup()
+  
+  return(subsampled)
+}
+
+# Step 6: Perform Multiple Subsampling Iterations
+n_iterations <- 100
+distance_results <- list()
+
+for (i in 1:n_iterations) {
+  cat("Iteration", i, "\n")
+  
+  # Subsample Metadata
+  subsampled_metadata <- subsample_transects(corallorhiza_metadata, n_per_class = 6)
+  
+  # Fix Sample_ID Formatting
+  subsampled_metadata$Sample_ID <- gsub("-", ".", subsampled_metadata$Sample_ID)
+  
+  # Initialize Results for Current Iteration
+  iteration_results <- list()
+  
+  # Loop Over Distance Classes
+  for (distance_class in unique(subsampled_metadata$Distance)) {
+    cat("  Processing Distance Class:", distance_class, "\n")
+    
+    # Filter metadata for the current distance class
+    distance_metadata <- subsampled_metadata %>%
+      filter(Distance == distance_class)
+    
+    # Subset OTU table
+    if (!all(distance_metadata$Sample_ID %in% colnames(otu_binary))) {
+      missing_ids <- setdiff(distance_metadata$Sample_ID, colnames(otu_binary))
+      cat("  Mismatched Sample_IDs for Distance Class:", distance_class, "\n")
+      print(missing_ids)
+      next
+    }
+    
+    otu_subset <- otu_binary[, distance_metadata$Sample_ID, drop = FALSE]
+    
+    # Convert to matrix
+    otu_matrix <- as.matrix(otu_subset)
+    
+    # Check Data Adequacy
+    if (ncol(otu_matrix) < 2 || all(colSums(otu_matrix) == 0)) {
+      warning(paste("Insufficient data in OTU matrix for Distance Class:", distance_class))
+      next
+    }
+    
+    # Calculate Beta Diversity
+    beta_results <- beta.pair(otu_matrix, index.family = "sorensen")
+    
+    # Extract Metrics
+    turnover <- mean(as.vector(beta_results$beta.sim), na.rm = TRUE)
+    nestedness <- mean(as.vector(beta_results$beta.sne), na.rm = TRUE)
+    total <- mean(as.vector(beta_results$beta.sor), na.rm = TRUE)
+    
+    # Store Results for Current Distance Class
+    iteration_results[[as.character(distance_class)]] <- data.frame(
+      Iteration = i,
+      Distance = distance_class,
+      Turnover = turnover,
+      Nestedness = nestedness,
+      Total = total
+    )
+  }
+  
+  # Combine Results for All Distance Classes in Current Iteration
+  distance_results[[i]] <- do.call(rbind, iteration_results)
+}
+
+# Step 7: Combine and Summarize Results Across Iterations
+final_results <- do.call(rbind, distance_results)
+
+# Summarize Metrics by Distance Class
+summary_results <- final_results %>%
+  group_by(Distance) %>%
+  summarise(
+    MeanTurnover = mean(Turnover, na.rm = TRUE),
+    SDTurnover = sd(Turnover, na.rm = TRUE),
+    MeanNestedness = mean(Nestedness, na.rm = TRUE),
+    SDNestedness = sd(Nestedness, na.rm = TRUE),
+    MeanTotal = mean(Total, na.rm = TRUE),
+    SDTotal = sd(Total, na.rm = TRUE)
+  )
+
+# Save Results
+write.csv(final_results, "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Corallorhiza/Randomized_Transects/distance_specific_beta_diversity_iterations.csv", row.names = FALSE)
+write.csv(summary_results, "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Corallorhiza/Randomized_Transects/distance_specific_beta_diversity_summary.csv", row.names = FALSE)
+
+# Step 8: Visualize Results
+ggplot(final_results, aes(x = as.factor(Distance))) +
+  geom_boxplot(aes(y = Turnover, color = "Turnover")) +
+  geom_boxplot(aes(y = Nestedness, color = "Nestedness")) +
+  geom_boxplot(aes(y = Total, color = "Total Beta Diversity")) +
+  labs(
+    title = "Beta Diversity Metrics Across Distance Classes (100 Iterations)",
+    x = "Distance Class",
+    y = "Beta Diversity Metric"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Turnover" = "blue", "Nestedness" = "red", "Total Beta Diversity" = "green")) +
+  theme(legend.title = element_blank())
+
+# Save Plot
+ggsave("beta_diversity_distance_classes_corallorhiza.png", width = 10, height = 6)
+
+
+########
+S. SANGUINEA- WITHIN-DISTANCE CLASS TURNOVER AND NESTEDNESS -NON-RANDOMIZED 
+########
+
+# File paths
+metadata_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv"
+otu_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv"
+guild_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv"
+
+
+# Load Data
+metadata <- read.csv(metadata_path)
+otu_table <- read.csv(otu_table_path, row.names = 1)
+guild_table <- read.csv(guild_table_path)
+
+ 
+# Filter for Ectomycorrhizal (ECM) Fungi
+ecm_otus <- guild_table %>%
+  filter(primary_lifestyle == "ectomycorrhizal") %>%
+  pull(OTU_ID)
+
+otu_ecm <- otu_table %>%
+  filter(row.names(otu_table) %in% ecm_otus)
+
+
+# Convert OTU Table to Presence/Absence
+otu_binary <- as.data.frame((otu_ecm > 0) * 1)
+
+
+# Filter Metadata for Sarcodes Samples
+sarcodes_metadata <- metadata %>%
+  filter(MH_Host == "Sarcodes" & Sample_Type == "Soil")
+
+# Ensure Sample_ID formatting matches between metadata and OTU table
+sarcodes_metadata$Sample_ID <- gsub("-", ".", sarcodes_metadata$Sample_ID)
+
+# Subset the OTU binary table to include only Sarcodes samples
+otu_sarcodes <- otu_binary[, colnames(otu_binary) %in% sarcodes_metadata$Sample_ID]
+
+# Reorder metadata to match the columns in otu_sarcodes
+sarcodes_metadata <- sarcodes_metadata[match(colnames(otu_sarcodes), sarcodes_metadata$Sample_ID), ]
+
+# Transpose the OTU table so rows represent samples, then add Distance
+otu_sarcodes_with_distance <- cbind(Distance = sarcodes_metadata$Distance, t(otu_sarcodes))
+
+# Transpose the OTU table and ensure the result is a data frame
+otu_sarcodes_with_distance <- data.frame(Distance = sarcodes_metadata$Distance, t(otu_sarcodes))
+
+
+# Define a function to calculate beta diversity for each distance class
+calculate_beta_diversity <- function(distance_class, data) {
+  subset_data <- data[data$Distance == distance_class, -1]  # Exclude the Distance column
+  
+  if (nrow(subset_data) < 2) {
+    warning(paste("Not enough samples for Distance =", distance_class))
+    return(data.frame(
+      Distance = distance_class,
+      Turnover = NA,
+      Nestedness = NA,
+      TotalBetaDiversity = NA
+    ))
+  }
+  
+  # Convert the data to a matrix
+  subset_matrix <- as.matrix(subset_data)
+  
+  # Calculate beta diversity components
+  beta_result <- beta.multi(subset_matrix, index.family = "sorensen")
+  
+  return(data.frame(
+    Distance = distance_class,
+    Turnover = beta_result$beta.SIM,
+    Nestedness = beta_result$beta.SNE,
+    TotalBetaDiversity = beta_result$beta.SOR
+  ))
+}
+
+# Get unique distance classes
+distance_classes <- unique(otu_sarcodes_with_distance$Distance)
+
+# Apply the function to each distance class
+beta_diversity_results <- do.call(
+  rbind,
+  lapply(distance_classes, calculate_beta_diversity, data = otu_sarcodes_with_distance)
+)
+
+# Summarize metrics for each distance class
+summary_results_by_distance <- beta_diversity_results %>%
+  group_by(Distance) %>%
+  summarise(
+    MeanTurnover = mean(Turnover, na.rm = TRUE),
+    MeanNestedness = mean(Nestedness, na.rm = TRUE),
+    MeanTotalBetaDiversity = mean(TotalBetaDiversity, na.rm = TRUE)
+  )
+
+# Print the summary results by distance class
+cat("Summary Results by Distance Class:\n")
+print(summary_results_by_distance)
+
+
+# Save Results
+write.csv(summary_results_by_distance, "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Sarcodes/Non_Randomized_Transects/distance_specific_beta_diversity_iterations.csv", row.names = FALSE)
+
+########
+S. SANGUINEA - WITHIN-DISTANCE CLASS TURNOVER AND NESTEDNESS - RANDOMIZEDD 
+########
+
+# Load necessary libraries
+library(dplyr)
+library(betapart)
+library(ggplot2)
+
+# File paths
+metadata_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv"
+otu_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv"
+guild_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv"
+
+# Step 1: Load Data
+metadata <- read.csv(metadata_path)
+otu_table <- read.csv(otu_table_path, row.names = 1)
+guild_table <- read.csv(guild_table_path)
+
+# Step 2: Filter for Ectomycorrhizal (ECM) Fungi
+ecm_otus <- guild_table %>%
+  filter(primary_lifestyle == "ectomycorrhizal") %>%
+  pull(OTU_ID)
+
+otu_ecm <- otu_table %>%
+  filter(row.names(otu_table) %in% ecm_otus)
+
+# Step 3: Convert OTU Table to Presence/Absence
+otu_binary <- as.data.frame((otu_ecm > 0) * 1)
+
+# Step 4: Filter Metadata for Sarcodes Samples
+sarcodes_metadata <- metadata %>%
+  filter(MH_Host == "Sarcodes" & Sample_Type == "Soil")
+
+# Step 5: Define Subsampling Function
+subsample_transects <- function(metadata, n_per_class = 6) {
+  # Ensure n_per_class does not exceed available samples
+  subsampled <- metadata %>%
+    group_by(Distance) %>%
+    group_modify(~ {
+      current_n <- nrow(.x)
+      if (current_n < n_per_class) {
+        warning(paste("Not enough samples for Distance =", unique(.x$Distance), 
+                      ". Needed:", n_per_class, "Available:", current_n))
+        return(.x)
+      } else {
+        sample_n(.x, n_per_class)
+      }
+    }) %>%
+    ungroup()
+  
+  return(subsampled)
+}
+
+# Step 6: Perform Multiple Subsampling Iterations
+n_iterations <- 100
+distance_results <- list()
+
+for (i in 1:n_iterations) {
+  cat("Iteration", i, "\n")
+  
+  # Subsample Metadata
+  subsampled_metadata <- subsample_transects(sarcodes_metadata, n_per_class = 6)
+  
+  # Fix Sample_ID Formatting
+  subsampled_metadata$Sample_ID <- gsub("-", ".", subsampled_metadata$Sample_ID)
+  
+  # Initialize Results for Current Iteration
+  iteration_results <- list()
+  
+  # Loop Over Distance Classes
+  for (distance_class in unique(subsampled_metadata$Distance)) {
+    cat("  Processing Distance Class:", distance_class, "\n")
+    
+    # Filter metadata for the current distance class
+    distance_metadata <- subsampled_metadata %>%
+      filter(Distance == distance_class)
+    
+    # Subset OTU table
+    if (!all(distance_metadata$Sample_ID %in% colnames(otu_binary))) {
+      missing_ids <- setdiff(distance_metadata$Sample_ID, colnames(otu_binary))
+      cat("  Mismatched Sample_IDs for Distance Class:", distance_class, "\n")
+      print(missing_ids)
+      next
+    }
+    
+    otu_subset <- otu_binary[, distance_metadata$Sample_ID, drop = FALSE]
+    
+    # Convert to matrix
+    otu_matrix <- as.matrix(otu_subset)
+    
+    # Check Data Adequacy
+    if (ncol(otu_matrix) < 2 || all(colSums(otu_matrix) == 0)) {
+      warning(paste("Insufficient data in OTU matrix for Distance Class:", distance_class))
+      next
+    }
+    
+    # Calculate Beta Diversity
+    beta_results <- beta.pair(otu_matrix, index.family = "sorensen")
+    
+    # Extract Metrics
+    turnover <- mean(as.vector(beta_results$beta.sim), na.rm = TRUE)
+    nestedness <- mean(as.vector(beta_results$beta.sne), na.rm = TRUE)
+    total <- mean(as.vector(beta_results$beta.sor), na.rm = TRUE)
+    
+    # Store Results for Current Distance Class
+    iteration_results[[as.character(distance_class)]] <- data.frame(
+      Iteration = i,
+      Distance = distance_class,
+      Turnover = turnover,
+      Nestedness = nestedness,
+      Total = total
+    )
+  }
+  
+  # Combine Results for All Distance Classes in Current Iteration
+  distance_results[[i]] <- do.call(rbind, iteration_results)
+}
+
+# Step 7: Combine and Summarize Results Across Iterations
+final_results <- do.call(rbind, distance_results)
+
+# Summarize Metrics by Distance Class
+summary_results <- final_results %>%
+  group_by(Distance) %>%
+  summarise(
+    MeanTurnover = mean(Turnover, na.rm = TRUE),
+    SDTurnover = sd(Turnover, na.rm = TRUE),
+    MeanNestedness = mean(Nestedness, na.rm = TRUE),
+    SDNestedness = sd(Nestedness, na.rm = TRUE),
+    MeanTotal = mean(Total, na.rm = TRUE),
+    SDTotal = sd(Total, na.rm = TRUE)
+  )
+
+# Save Results
+write.csv(final_results, "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Sarcodes/distance_specific_beta_diversity_iterations.csv", row.names = FALSE)
+write.csv(summary_results, "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Sarcodes/distance_specific_beta_diversity_summary.csv", row.names = FALSE)

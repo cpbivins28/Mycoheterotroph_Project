@@ -1,0 +1,266 @@
+######
+C. STRIATA - CALCULATE DETECTION PROBABILITIES
+######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load the data files
+otu_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+guild_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv'
+metadata_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv'
+
+otu_table = pd.read_csv(otu_table_path, index_col=0)
+guild_table = pd.read_csv(guild_table_path)
+metadata = pd.read_csv(metadata_path)
+
+# Step 1: Filter metadata for Corallorhiza soil samples
+metadata['MH_Host'] = metadata['MH_Host'].str.strip()
+metadata['Sample_Type'] = metadata['Sample_Type'].str.strip()
+corallorhiza_metadata = metadata[(metadata['MH_Host'] == 'Corallorhiza') & (metadata['Sample_Type'] == 'Soil')]
+
+# Step 2: Identify rootball and non-rootball samples based on Distance
+rootball_samples = corallorhiza_metadata[corallorhiza_metadata['Distance'] == 0]['Sample_ID']
+non_rootball_samples = corallorhiza_metadata[corallorhiza_metadata['Distance'] != 0]['Sample_ID']
+
+# Step 3: Subset OTU table for Corallorhiza samples
+corallorhiza_otu_table = otu_table[corallorhiza_metadata['Sample_ID']]
+
+# Step 4: Calculate detection probabilities
+def calculate_detection_probability(otu_table):
+    return (otu_table > 0).sum(axis=1) / otu_table.shape[1]
+
+rootball_detection_prob = calculate_detection_probability(corallorhiza_otu_table[rootball_samples])
+non_rootball_detection_prob = calculate_detection_probability(corallorhiza_otu_table[non_rootball_samples])
+
+# Step 5: Create a DataFrame for detection probability comparison
+detection_prob_comparison = pd.DataFrame({
+    'OTU': rootball_detection_prob.index,
+    'Rootball': rootball_detection_prob.values,
+    'NonRootball': non_rootball_detection_prob.values
+})
+
+# Step 6: Identify OTUs with lower detection probability in rootball samples
+otus_lower_detection_prob = detection_prob_comparison[
+    detection_prob_comparison['Rootball'] < detection_prob_comparison['NonRootball']
+]
+
+# Step 7: Save detection probability data and filtered OTUs
+detection_prob_comparison.to_csv("corallorhiza_detection_probabilities.csv", index=False)
+otus_lower_detection_prob.to_csv("otus_lower_detection_prob_corallorhiza.csv", index=False)
+
+# Step 8: Plot detection probabilities
+plt.figure(figsize=(8, 6))
+plt.scatter(detection_prob_comparison['NonRootball'], detection_prob_comparison['Rootball'], alpha=0.7)
+plt.plot([0, 1], [0, 1], color='red', linestyle='--')
+plt.xlabel('Detection Probability in Non-Rootball Samples')
+plt.ylabel('Detection Probability in Rootball Samples')
+plt.title('Detection Probability Comparison for Corallorhiza')
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("corallorhiza_detection_probabilities.svg", format="svg")
+plt.show()
+
+# Output results
+print(f"Detection probability data saved to 'corallorhiza_detection_probabilities.csv'")
+print(f"OTUs with lower detection probability in rootball samples saved to 'otus_lower_detection_prob_corallorhiza.csv'")
+
+
+
+######
+C. STRIATA - CORRELATE DETECTION PROBABILITIES WITH RELATIVE ABUNDANCE
+######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+
+# Load the datasets
+otu_table = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv')
+metadata = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv')
+guild_table = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv')
+otus_lower_detection_prob = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Detection_Probabilities/Corallorhiza/otus_lower_detection_prob_corallorhiza.csv')
+
+# Step 1: Prepare the OTU Table
+otu_table.set_index('Unnamed: 0', inplace=True)  # Set OTU ID column as index
+otu_table.index = otu_table.index.astype(str)  # Ensure OTU IDs are strings
+
+# Step 2: Filter Metadata for Corallorhiza Soil Samples
+metadata['MH_Host'] = metadata['MH_Host'].str.strip()
+metadata['Sample_Type'] = metadata['Sample_Type'].str.strip()
+corallorhiza_metadata = metadata[(metadata['MH_Host'] == 'Corallorhiza') & (metadata['Sample_Type'] == 'Soil')]
+
+# Step 3: Filter Guild Table for ECM OTUs
+ecm_otus = guild_table[guild_table['primary_lifestyle'] == 'ectomycorrhizal'][['OTU_ID', 'Family']]
+
+# Step 4: Subset OTU Table for ECM OTUs
+ecm_otu_table = otu_table.loc[otu_table.index.isin(ecm_otus['OTU_ID'])]
+
+# Step 5: Match Metadata to Non-Rootball Samples
+non_rootball_samples = corallorhiza_metadata[corallorhiza_metadata['Distance'] != 0]['Sample_ID']
+ecm_non_rootball_table = ecm_otu_table[non_rootball_samples]
+
+# Step 6: Aggregate Abundance by Family
+ecm_with_family = ecm_non_rootball_table.join(ecm_otus.set_index('OTU_ID'), how='left')
+family_abundance = ecm_with_family.groupby('Family').sum().sum(axis=1)
+
+# Step 7: Merge Detection Probabilities
+detection_probabilities = otus_lower_detection_prob.set_index('OTU')
+detection_probabilities = detection_probabilities.join(ecm_otus.set_index('OTU_ID'), how='inner')
+family_detection_probs = detection_probabilities.groupby('Family').mean()
+
+# Add family abundances to detection probabilities
+family_detection_probs['Abundance'] = family_abundance
+
+# Save the raw data to a CSV
+output_csv_path = os.path.join(os.getcwd(), "corallorhiza_ecm_detection_and_abundance_data.csv")
+family_detection_probs.reset_index().to_csv(output_csv_path, index=False)
+print(f"Raw data saved to: {output_csv_path}")
+
+# Step 8: Correlate Detection Probabilities with Abundance
+correlation = family_detection_probs['Rootball'].corr(family_detection_probs['Abundance'])
+print(f"Correlation between rootball detection probability and abundance: {correlation}")
+
+# Step 9: Visualize Results
+# Scatterplot
+plt.figure(figsize=(8, 6))
+plt.scatter(family_detection_probs['Abundance'], family_detection_probs['Rootball'], alpha=0.7)
+plt.xlabel('Abundance in Non-Rootball Samples')
+plt.ylabel('Rootball Detection Probability')
+plt.title('Detection Probability vs Abundance for Corallorhiza ECM OTUs')
+scatter_plot_path = os.path.join(os.getcwd(), "corallorhiza_ecm_detection_vs_abundance.svg")
+plt.savefig(scatter_plot_path, format='svg', bbox_inches='tight')  # Save scatterplot
+plt.show()
+print(f"Scatterplot saved to: {scatter_plot_path}")
+
+######
+S. SANGUINEA- CALCULATE DETECTION PROBABILITIES
+######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load data
+metadata = pd.read_csv("/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv")
+otu_table = pd.read_csv("/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv", index_col=0)
+
+# Filter metadata for Sarcodes samples
+sarcodes_metadata = metadata[metadata['MH_Host'] == 'Sarcodes']
+
+# Identify rootball (0 cm) and non-rootball (>0 cm) samples
+rootball_samples = sarcodes_metadata[sarcodes_metadata['Distance'] == 0]['Sample_ID']
+non_rootball_samples = sarcodes_metadata[sarcodes_metadata['Distance'] != 0]['Sample_ID']
+
+# Subset OTU table for Sarcodes samples
+sarcodes_otu_table = otu_table[sarcodes_metadata['Sample_ID']]
+
+# Subset OTU table for rootball and non-rootball samples
+otu_table_rootball = sarcodes_otu_table[rootball_samples]
+otu_table_non_rootball = sarcodes_otu_table[non_rootball_samples]
+
+# Function to calculate detection probability
+def calculate_detection_probability(otu_table):
+    detection_probabilities = (otu_table > 0).sum(axis=1) / otu_table.shape[1]
+    return detection_probabilities
+
+# Calculate detection probabilities for rootball and non-rootball samples
+rootball_detection_prob = calculate_detection_probability(otu_table_rootball)
+non_rootball_detection_prob = calculate_detection_probability(otu_table_non_rootball)
+
+# Create a DataFrame for comparison
+detection_prob_comparison = pd.DataFrame({
+    'OTU': rootball_detection_prob.index,
+    'Rootball': rootball_detection_prob.values,
+    'NonRootball': non_rootball_detection_prob.values
+})
+
+# Plot detection probabilities
+plt.figure(figsize=(8, 6))
+plt.scatter(detection_prob_comparison['NonRootball'], detection_prob_comparison['Rootball'])
+plt.plot([0, 1], [0, 1], color='red', linestyle='--')  # Reference line
+plt.xlabel('Detection Probability in Non-Rootball Samples')
+plt.ylabel('Detection Probability in Rootball Samples')
+plt.title('Detection Probability Comparison for Sarcodes')
+plt.grid(True)
+plt.savefig('sarcodes_detection_probabilities.svg', format='svg')
+plt.show()
+
+# Identify OTUs with lower detection probability in rootball samples
+otus_lower_detection_prob = detection_prob_comparison[
+    detection_prob_comparison['Rootball'] < detection_prob_comparison['NonRootball']
+]
+
+# Output the results
+print(otus_lower_detection_prob)
+
+# Save the results to a CSV file
+otus_lower_detection_prob.to_csv("otus_lower_detection_prob_sarcodes.csv", index=False)
+
+
+
+######
+S. SANGUINEA - CORRELATE DETECTION PROBABILITIES WITH RELATIVE ABUNDANCE
+######
+
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+
+# Load the datasets
+otu_table = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv')
+metadata = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv')
+guild_table = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv')
+otus_lower_detection_prob = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Detection_Probabilities/Sarcodes/otus_lower_detection_prob.csv')
+
+# Step 1: Prepare the OTU Table
+otu_table.set_index('Unnamed: 0', inplace=True)  # Set OTU ID column as index
+otu_table.index = otu_table.index.astype(str)  # Ensure OTU IDs are strings
+
+# Step 2: Filter Guild Table for ECM OTUs
+ecm_otus = guild_table[guild_table['primary_lifestyle'] == 'ectomycorrhizal'][['OTU_ID', 'Family']]
+
+# Step 3: Subset OTU Table for ECM OTUs
+ecm_otu_table = otu_table.loc[otu_table.index.isin(ecm_otus['OTU_ID'])]
+
+# Step 4: Match Metadata to Non-Rootball Samples
+non_rootball_samples = metadata[metadata['Distance'] != 0]['Sample_ID']
+ecm_non_rootball_table = ecm_otu_table[non_rootball_samples]
+
+# Step 5: Aggregate Abundance by Family
+ecm_with_family = ecm_non_rootball_table.join(ecm_otus.set_index('OTU_ID'), how='left')
+family_abundance = ecm_with_family.groupby('Family').sum().sum(axis=1)
+
+# Step 6: Merge Detection Probabilities
+detection_probabilities = otus_lower_detection_prob.set_index('OTU')
+detection_probabilities = detection_probabilities.join(ecm_otus.set_index('OTU_ID'), how='inner')
+family_detection_probs = detection_probabilities.groupby('Family').mean()
+
+# Add family abundances to detection probabilities
+family_detection_probs['Abundance'] = family_abundance
+
+# Save the raw data to a CSV
+output_csv_path = os.path.join(os.getcwd(), "ecm_detection_and_abundance_data.csv")
+family_detection_probs.reset_index().to_csv(output_csv_path, index=False)
+print(f"Raw data saved to: {output_csv_path}")
+
+# Step 7: Correlate Detection Probabilities with Abundance
+correlation = family_detection_probs['Rootball'].corr(family_detection_probs['Abundance'])
+print(f"Correlation between rootball detection probability and abundance: {correlation}")
+
+# Step 8: Visualize Results
+# Scatterplot
+plt.figure(figsize=(8, 6))
+plt.scatter(family_detection_probs['Abundance'], family_detection_probs['Rootball'], alpha=0.7)
+plt.xlabel('Abundance in Non-Rootball Samples')
+plt.ylabel('Rootball Detection Probability')
+plt.title('Detection Probability vs Abundance for ECM OTUs')
+scatter_plot_path = os.path.join(os.getcwd(), "ecm_detection_vs_abundance.svg")
+plt.savefig(scatter_plot_path, format='svg', bbox_inches='tight')  # Save scatterplot
+plt.show()
+print(f"Scatterplot saved to: {scatter_plot_path}")
+
+
+
+

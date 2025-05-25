@@ -1,0 +1,102 @@
+#######
+C. STRIATA - ECM LINEAGES IN NON-ROOTBALL SAMPLES
+#######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load datasets
+otu_table = pd.read_csv('/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/MH_phyloseq_RA_otu_table.csv')
+metadata = pd.read_csv('/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/metadata.csv')
+guild_table = pd.read_csv('/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/guild_table.csv')
+otus_lower_detection_prob = pd.read_csv('/Users/cbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Detection_Probabilities/Corallorhiza/CSVs/otus_lower_detection_prob_corallorhiza.csv')
+
+# Prepare OTU table
+otu_table.set_index('Unnamed: 0', inplace=True)
+otu_table.index = otu_table.index.astype(str)
+
+# Filter metadata
+metadata['MH_Host'] = metadata['MH_Host'].str.strip()
+metadata['Sample_Type'] = metadata['Sample_Type'].str.strip()
+corallorhiza_metadata = metadata[(metadata['MH_Host'] == 'Corallorhiza') & (metadata['Sample_Type'] == 'Soil')]
+non_rootball_samples = corallorhiza_metadata[corallorhiza_metadata['Distance'] != 0]['Sample_ID']
+
+# Filter and merge guild info
+ecm_otus = guild_table[guild_table['primary_lifestyle'] == 'ectomycorrhizal'][['OTU_ID', 'Ectomycorrhiza_lineage_template']]
+ecm_otus.rename(columns={'Ectomycorrhiza_lineage_template': 'Lineage'}, inplace=True)
+ecm_otu_table = otu_table.loc[otu_table.index.isin(ecm_otus['OTU_ID'])]
+ecm_otu_table = ecm_otu_table[non_rootball_samples]
+ecm_otu_table['Lineage'] = ecm_otu_table.index.map(ecm_otus.set_index('OTU_ID')['Lineage'])
+
+# Aggregate
+lineage_abundance = ecm_otu_table.groupby('Lineage').sum().sum(axis=1)
+lineage_abundance = lineage_abundance[lineage_abundance > 0].sort_values(ascending=True)
+lineage_abundance = lineage_abundance.tail(20)
+lineage_abundance.index = [x.replace('/', '')[:30] for x in lineage_abundance.index]
+
+# Plot
+plt.figure(figsize=(10, 8))
+bars = plt.barh(lineage_abundance.index, lineage_abundance.values, color='teal')
+plt.title('Top 20 ECM Lineages in Non-Rootball Soil Samples (C. striata)', fontsize=16, fontweight='bold')
+plt.xlabel('Total Relative Abundance', fontsize=14, fontweight='bold')
+plt.ylabel('ECM Lineage', fontsize=14, fontweight='bold')
+plt.xticks(fontsize=12, fontweight='bold')
+plt.yticks(fontsize=12, fontweight='bold')
+plt.tight_layout()
+
+# Save
+plt.savefig('/Users/cbivins/Desktop/corallorhiza_top20_lineage_abundance_non_rootball.svg', format='svg')
+plt.show()
+
+
+#######
+S. SANGUINEA - ECM LINEAGES IN NON-ROOTBALL SAMPLES
+#######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Load datasets
+otu_table = pd.read_csv('/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/MH_phyloseq_RA_otu_table.csv')
+metadata = pd.read_csv('/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/metadata.csv')
+guild_table = pd.read_csv('/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/guild_table.csv')
+otus_lower_detection_prob = pd.read_csv('/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Exclusion_of_ECM/Detection_Probabilities/Sarcodes/CSVs/otus_lower_detection_prob_sarcodes.csv')
+
+# Prepare OTU table
+otu_table.set_index('Unnamed: 0', inplace=True)
+otu_table.index = otu_table.index.astype(str)
+
+# Filter metadata
+metadata['MH_Host'] = metadata['MH_Host'].str.strip()
+metadata['Sample_Type'] = metadata['Sample_Type'].str.strip()
+sarcodes_metadata = metadata[(metadata['MH_Host'] == 'Sarcodes') & (metadata['Sample_Type'] == 'Soil')]
+non_rootball_samples = sarcodes_metadata[sarcodes_metadata['Distance'] != 0]['Sample_ID']
+
+# Filter and merge guild info
+ecm_otus = guild_table[guild_table['primary_lifestyle'] == 'ectomycorrhizal'][['OTU_ID', 'Ectomycorrhiza_lineage_template']]
+ecm_otus.rename(columns={'Ectomycorrhiza_lineage_template': 'Lineage'}, inplace=True)
+ecm_otu_table = otu_table.loc[otu_table.index.isin(ecm_otus['OTU_ID'])]
+ecm_otu_table = ecm_otu_table[non_rootball_samples]
+ecm_otu_table['Lineage'] = ecm_otu_table.index.map(ecm_otus.set_index('OTU_ID')['Lineage'])
+
+# Aggregate
+lineage_abundance = ecm_otu_table.groupby('Lineage').sum().sum(axis=1)
+lineage_abundance = lineage_abundance[lineage_abundance > 0].sort_values(ascending=True)
+lineage_abundance = lineage_abundance.tail(20)
+lineage_abundance.index = [x.replace('/', '')[:30] for x in lineage_abundance.index]
+
+# Plot
+plt.figure(figsize=(10, 8))
+bars = plt.barh(lineage_abundance.index, lineage_abundance.values, color='firebrick')
+plt.title('Top 20 ECM Lineages in Non-Rootball Soil Samples (S. sanguinea)', fontsize=16, fontweight='bold')
+plt.xlabel('Total Relative Abundance', fontsize=14, fontweight='bold')
+plt.ylabel('ECM Lineage', fontsize=14, fontweight='bold')
+plt.xticks(fontsize=12, fontweight='bold')
+plt.yticks(fontsize=12, fontweight='bold')
+plt.tight_layout()
+
+# Save
+plt.savefig('/Users/cbivins/Desktop/sarcodes_top20_lineage_abundance_non_rootball.svg', format='svg')
+plt.show()
+
+

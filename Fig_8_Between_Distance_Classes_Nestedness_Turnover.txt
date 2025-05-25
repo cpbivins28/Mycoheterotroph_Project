@@ -1,0 +1,543 @@
+########
+C. STRIATA - BETWEEN-DISTANCE CLASS TURNOVER AND NESTEDNESS -NON-RANDOMIZED 
+########
+
+# Load required libraries
+library(betapart)
+library(dplyr)
+
+# File paths
+metadata_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv"
+otu_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv"
+guild_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv"
+
+# Step 1: Load Data
+metadata <- read.csv(metadata_path)
+otu_table <- read.csv(otu_table_path, row.names = 1)
+guild_table <- read.csv(guild_table_path)
+
+# Step 2: Filter for ECM Fungi
+ecm_otus <- guild_table %>%
+  filter(primary_lifestyle == "ectomycorrhizal") %>%
+  pull(OTU_ID)
+
+otu_ecm <- otu_table %>%
+  filter(row.names(otu_table) %in% ecm_otus)
+
+# Step 3: Convert OTU Table to Presence/Absence
+otu_binary <- as.data.frame((otu_ecm > 0) * 1)
+
+# Step 4: Filter Metadata for Corallorhiza Soil Samples
+corallorhiza_metadata <- metadata %>%
+  filter(MH_Host == "Corallorhiza" & Sample_Type == "Soil")
+
+# Ensure Sample_ID formatting matches between metadata and OTU table
+corallorhiza_metadata$Sample_ID <- gsub("-", ".", corallorhiza_metadata$Sample_ID)
+
+# Subset the OTU binary table to include only Corallorhiza samples
+otu_corallorhiza <- otu_binary[, colnames(otu_binary) %in% corallorhiza_metadata$Sample_ID]
+
+# Reorder metadata to match the columns in otu_corallorhiza
+corallorhiza_metadata <- corallorhiza_metadata[match(colnames(otu_corallorhiza), corallorhiza_metadata$Sample_ID), ]
+
+# Transpose the OTU table and ensure the result is a data frame
+otu_corallorhiza_with_distance <- data.frame(Distance = corallorhiza_metadata$Distance, t(otu_corallorhiza))
+
+# Step 5: Define a Function to Calculate Beta Diversity for Specific Distance Pairs
+calculate_beta_diversity_between_distances <- function(distance1, distance2, data) {
+  # Subset data for the two distance classes
+  subset_data1 <- data[data$Distance == distance1, -1]  # Exclude Distance column
+  subset_data2 <- data[data$Distance == distance2, -1]  # Exclude Distance column
+  
+  # Combine the subsets
+  combined_data <- rbind(subset_data1, subset_data2)
+  
+  # Check if there are enough samples in both classes
+  if (nrow(subset_data1) < 1 | nrow(subset_data2) < 1) {
+    warning(paste("Not enough samples for Distance Pair =", distance1, "and", distance2))
+    return(data.frame(
+      Distance1 = distance1,
+      Distance2 = distance2,
+      Turnover = NA,
+      Nestedness = NA,
+      TotalBetaDiversity = NA
+    ))
+  }
+  
+  # Convert the combined data to a matrix
+  combined_matrix <- as.matrix(combined_data)
+  
+  # Calculate beta diversity components
+  beta_result <- beta.multi(combined_matrix, index.family = "sorensen")
+  
+  return(data.frame(
+    Distance1 = distance1,
+    Distance2 = distance2,
+    Turnover = beta_result$beta.SIM,
+    Nestedness = beta_result$beta.SNE,
+    TotalBetaDiversity = beta_result$beta.SOR
+  ))
+}
+
+# Step 6: Define Specific Distance Pairs
+distance_pairs <- list(
+  c(0, 10),
+  c(10, 50),
+  c(50, 100),
+  c(100, 500)
+)
+
+# Step 7: Apply the Function to Each Distance Pair
+beta_diversity_results_between_distances <- do.call(
+  rbind,
+  lapply(distance_pairs, function(pair) {
+    calculate_beta_diversity_between_distances(pair[1], pair[2], otu_corallorhiza_with_distance)
+  })
+)
+
+# Step 8: Save Results
+write.csv(
+  beta_diversity_results_between_distances,
+  "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Corallorhiza/Specific_Distance_Beta_Diversity.csv",
+  row.names = FALSE
+)
+
+# Print Results
+cat("Beta Diversity Results for Specific Distance Classes:\n")
+print(beta_diversity_results_between_distances)
+
+
+########
+C. STRIATA - BETWEEN-DISTANCE CLASS TURNOVER AND NESTEDNESS - RANDOMIZED 
+########
+
+# Load necessary libraries
+library(dplyr)
+library(betapart)
+library(ggplot2)
+
+# File paths
+metadata_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv"
+otu_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv"
+guild_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv"
+
+# Step 1: Load Data
+metadata <- read.csv(metadata_path)
+otu_table <- read.csv(otu_table_path, row.names = 1)
+guild_table <- read.csv(guild_table_path)
+
+# Step 2: Filter for ECM Fungi
+ecm_otus <- guild_table %>%
+  filter(primary_lifestyle == "ectomycorrhizal") %>%
+  pull(OTU_ID)
+
+otu_ecm <- otu_table %>%
+  filter(row.names(otu_table) %in% ecm_otus)
+
+# Step 3: Convert OTU Table to Presence/Absence
+otu_binary <- as.data.frame((otu_ecm > 0) * 1)
+
+# Step 4: Filter Metadata for Corallorhiza Samples
+corallorhiza_metadata <- metadata %>%
+  filter(MH_Host == "Corallorhiza" & Sample_Type == "Soil")
+
+# Step 5: Randomization Function for Transects
+randomize_transects <- function(metadata) {
+  rootball_samples <- metadata %>% filter(Distance == 0)  # Keep all rootball samples
+  randomized_non_rootball <- metadata %>%
+    filter(Distance > 0) %>%
+    group_by(X.Plant, Distance) %>%
+    sample_n(1)  # Randomly select one transect's sample per distance class
+  
+  # Combine rootball and randomized non-rootball samples
+  bind_rows(rootball_samples, randomized_non_rootball)
+}
+
+# Step 6: Define a Function to Calculate Beta Diversity Between Distance Classes
+calculate_beta_diversity_between_distances <- function(distance1, distance2, data) {
+  # Subset data for the two distance classes
+  subset_data1 <- data[data$Distance == distance1, -1]  # Exclude Distance column
+  subset_data2 <- data[data$Distance == distance2, -1]  # Exclude Distance column
+  
+  # Combine the subsets
+  combined_data <- rbind(subset_data1, subset_data2)
+  
+  # Check if there are enough samples in both classes
+  if (nrow(subset_data1) < 1 | nrow(subset_data2) < 1) {
+    warning(paste("Not enough samples for Distance Pair =", distance1, "and", distance2))
+    return(data.frame(
+      Distance1 = distance1,
+      Distance2 = distance2,
+      Turnover = NA,
+      Nestedness = NA,
+      TotalBetaDiversity = NA
+    ))
+  }
+  
+  # Convert the combined data to a matrix
+  combined_matrix <- as.matrix(combined_data)
+  
+  # Calculate beta diversity components
+  beta_result <- beta.multi(combined_matrix, index.family = "sorensen")
+  
+  return(data.frame(
+    Distance1 = distance1,
+    Distance2 = distance2,
+    Turnover = beta_result$beta.SIM,
+    Nestedness = beta_result$beta.SNE,
+    TotalBetaDiversity = beta_result$beta.SOR
+  ))
+}
+
+# Step 7: Define Specific Distance Pairs
+distance_pairs <- list(
+  c(0, 10),
+  c(10, 50),
+  c(50, 100),
+  c(100, 500)
+)
+
+# Step 8: Perform Multiple Randomized Iterations
+n_iterations <- 100
+results <- list()
+
+for (i in 1:n_iterations) {
+  cat("Iteration", i, "\n")
+  
+  # Randomize transects
+  randomized_metadata <- randomize_transects(corallorhiza_metadata)
+  
+  # Subset OTU table
+  randomized_metadata$Sample_ID <- gsub("-", ".", randomized_metadata$Sample_ID)
+  otu_subset <- otu_binary[, colnames(otu_binary) %in% randomized_metadata$Sample_ID]
+  
+  # Reorder metadata to match the OTU table
+  randomized_metadata <- randomized_metadata[match(colnames(otu_subset), randomized_metadata$Sample_ID), ]
+  
+  # Transpose the OTU table and add distances
+  otu_randomized_with_distance <- data.frame(
+    Distance = randomized_metadata$Distance,
+    t(otu_subset)
+  )
+  
+  # Calculate beta diversity for each distance pair
+  iteration_results <- do.call(
+    rbind,
+    lapply(distance_pairs, function(pair) {
+      calculate_beta_diversity_between_distances(pair[1], pair[2], otu_randomized_with_distance)
+    })
+  )
+  
+  # Add iteration column
+  iteration_results$Iteration <- i
+  results[[i]] <- iteration_results
+}
+
+# Step 9: Combine Results Across Iterations
+final_results <- do.call(rbind, results)
+
+# Step 10: Summarize Results Across Iterations
+summary_results <- final_results %>%
+  group_by(Distance1, Distance2) %>%
+  summarise(
+    MeanTurnover = mean(Turnover, na.rm = TRUE),
+    SDTurnover = sd(Turnover, na.rm = TRUE),
+    MeanNestedness = mean(Nestedness, na.rm = TRUE),
+    SDNestedness = sd(Nestedness, na.rm = TRUE),
+    MeanTotalBetaDiversity = mean(TotalBetaDiversity, na.rm = TRUE),
+    SDTotalBetaDiversity = sd(TotalBetaDiversity, na.rm = TRUE)
+  )
+
+# Step 11: Save Results
+write.csv(final_results, "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Corallorhiza/randomized_distance_beta_diversity_iterations.csv", row.names = FALSE)
+write.csv(summary_results, "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Corallorhiza/randomized_distance_beta_diversity_summary.csv", row.names = FALSE)
+
+# Step 12: Visualize Results
+ggplot(final_results, aes(x = interaction(Distance1, Distance2))) +
+  geom_boxplot(aes(y = Turnover, color = "Turnover")) +
+  geom_boxplot(aes(y = Nestedness, color = "Nestedness")) +
+  geom_boxplot(aes(y = TotalBetaDiversity, color = "Total Beta Diversity")) +
+  labs(
+    title = "Randomized Beta Diversity Metrics Between Distance Classes (100 Iterations)",
+    x = "Distance Pair",
+    y = "Beta Diversity Metric"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Turnover" = "blue", "Nestedness" = "red", "Total Beta Diversity" = "green")) +
+  theme(legend.title = element_blank())
+
+# Save Plot
+ggsave("randomized_beta_diversity_between_distances.png", width = 12, height = 8)
+
+########
+S. SANGUINEA - BETWEEN-DISTANCE CLASS TURNOVER AND NESTEDNESS -NON-RANDOMIZED 
+########
+
+# Load required libraries
+library(betapart)
+library(dplyr)
+
+# File paths
+metadata_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv"
+otu_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv"
+guild_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv"
+
+# Step 1: Load Data
+metadata <- read.csv(metadata_path)
+otu_table <- read.csv(otu_table_path, row.names = 1)
+guild_table <- read.csv(guild_table_path)
+
+# Step 2: Filter for ECM Fungi
+ecm_otus <- guild_table %>%
+  filter(primary_lifestyle == "ectomycorrhizal") %>%
+  pull(OTU_ID)
+
+otu_ecm <- otu_table %>%
+  filter(row.names(otu_table) %in% ecm_otus)
+
+# Step 3: Convert OTU Table to Presence/Absence
+otu_binary <- as.data.frame((otu_ecm > 0) * 1)
+
+# Step 4: Filter Metadata for Sarcodes Samples
+sarcodes_metadata <- metadata %>%
+  filter(MH_Host == "Sarcodes" & Sample_Type == "Soil")
+
+# Ensure Sample_ID formatting matches between metadata and OTU table
+sarcodes_metadata$Sample_ID <- gsub("-", ".", sarcodes_metadata$Sample_ID)
+
+# Subset the OTU binary table to include only Sarcodes samples
+otu_sarcodes <- otu_binary[, colnames(otu_binary) %in% sarcodes_metadata$Sample_ID]
+
+# Reorder metadata to match the columns in otu_sarcodes
+sarcodes_metadata <- sarcodes_metadata[match(colnames(otu_sarcodes), sarcodes_metadata$Sample_ID), ]
+
+# Transpose the OTU table and ensure the result is a data frame
+otu_sarcodes_with_distance <- data.frame(Distance = sarcodes_metadata$Distance, t(otu_sarcodes))
+
+# Step 5: Define a Function to Calculate Beta Diversity for Specific Distance Pairs
+calculate_beta_diversity_between_distances <- function(distance1, distance2, data) {
+  # Subset data for the two distance classes
+  subset_data1 <- data[data$Distance == distance1, -1]  # Exclude Distance column
+  subset_data2 <- data[data$Distance == distance2, -1]  # Exclude Distance column
+  
+  # Combine the subsets
+  combined_data <- rbind(subset_data1, subset_data2)
+  
+  # Check if there are enough samples in both classes
+  if (nrow(subset_data1) < 1 | nrow(subset_data2) < 1) {
+    warning(paste("Not enough samples for Distance Pair =", distance1, "and", distance2))
+    return(data.frame(
+      Distance1 = distance1,
+      Distance2 = distance2,
+      Turnover = NA,
+      Nestedness = NA,
+      TotalBetaDiversity = NA
+    ))
+  }
+  
+  # Convert the combined data to a matrix
+  combined_matrix <- as.matrix(combined_data)
+  
+  # Calculate beta diversity components
+  beta_result <- beta.multi(combined_matrix, index.family = "sorensen")
+  
+  return(data.frame(
+    Distance1 = distance1,
+    Distance2 = distance2,
+    Turnover = beta_result$beta.SIM,
+    Nestedness = beta_result$beta.SNE,
+    TotalBetaDiversity = beta_result$beta.SOR
+  ))
+}
+
+# Step 6: Define Specific Distance Pairs
+distance_pairs <- list(
+  c(0, 10),
+  c(10, 50),
+  c(50, 100),
+  c(100, 500)
+)
+
+# Step 7: Apply the Function to Each Distance Pair
+beta_diversity_results_between_distances <- do.call(
+  rbind,
+  lapply(distance_pairs, function(pair) {
+    calculate_beta_diversity_between_distances(pair[1], pair[2], otu_sarcodes_with_distance)
+  })
+)
+
+# Step 8: Save Results
+write.csv(
+  beta_diversity_results_between_distances,
+  "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Sarcodes/Specific_Distance_Beta_Diversity.csv",
+  row.names = FALSE
+)
+
+# Print Results
+cat("Beta Diversity Results for Specific Distance Classes:\n")
+print(beta_diversity_results_between_distances)
+
+
+########
+S. SANGUINEA - BETWEEN-DISTANCE CLASS TURNOVER AND NESTEDNESS - RANDOMIZED 
+########
+
+
+# Load necessary libraries
+library(dplyr)
+library(betapart)
+library(ggplot2)
+
+# File paths
+metadata_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv"
+otu_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv"
+guild_table_path <- "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv"
+
+# Step 1: Load Data
+metadata <- read.csv(metadata_path)
+otu_table <- read.csv(otu_table_path, row.names = 1)
+guild_table <- read.csv(guild_table_path)
+
+# Step 2: Filter for ECM Fungi
+ecm_otus <- guild_table %>%
+  filter(primary_lifestyle == "ectomycorrhizal") %>%
+  pull(OTU_ID)
+
+otu_ecm <- otu_table %>%
+  filter(row.names(otu_table) %in% ecm_otus)
+
+# Step 3: Convert OTU Table to Presence/Absence
+otu_binary <- as.data.frame((otu_ecm > 0) * 1)
+
+# Step 4: Filter Metadata for Sarcodes Samples
+sarcodes_metadata <- metadata %>%
+  filter(MH_Host == "Sarcodes" & Sample_Type == "Soil")
+
+# Step 5: Randomization Function for Transects
+randomize_transects <- function(metadata) {
+  rootball_samples <- metadata %>% filter(Distance == 0)  # Keep all rootball samples
+  randomized_non_rootball <- metadata %>%
+    filter(Distance > 0) %>%
+    group_by(X.Plant, Distance) %>%
+    sample_n(1)  # Randomly select one transect's sample per distance class
+  
+  # Combine rootball and randomized non-rootball samples
+  bind_rows(rootball_samples, randomized_non_rootball)
+}
+
+# Step 6: Define a Function to Calculate Beta Diversity Between Distance Classes
+calculate_beta_diversity_between_distances <- function(distance1, distance2, data) {
+  # Subset data for the two distance classes
+  subset_data1 <- data[data$Distance == distance1, -1]  # Exclude Distance column
+  subset_data2 <- data[data$Distance == distance2, -1]  # Exclude Distance column
+  
+  # Combine the subsets
+  combined_data <- rbind(subset_data1, subset_data2)
+  
+  # Check if there are enough samples in both classes
+  if (nrow(subset_data1) < 1 | nrow(subset_data2) < 1) {
+    warning(paste("Not enough samples for Distance Pair =", distance1, "and", distance2))
+    return(data.frame(
+      Distance1 = distance1,
+      Distance2 = distance2,
+      Turnover = NA,
+      Nestedness = NA,
+      TotalBetaDiversity = NA
+    ))
+  }
+  
+  # Convert the combined data to a matrix
+  combined_matrix <- as.matrix(combined_data)
+  
+  # Calculate beta diversity components
+  beta_result <- beta.multi(combined_matrix, index.family = "sorensen")
+  
+  return(data.frame(
+    Distance1 = distance1,
+    Distance2 = distance2,
+    Turnover = beta_result$beta.SIM,
+    Nestedness = beta_result$beta.SNE,
+    TotalBetaDiversity = beta_result$beta.SOR
+  ))
+}
+
+# Step 7: Define Specific Distance Pairs
+distance_pairs <- list(
+  c(0, 10),
+  c(10, 50),
+  c(50, 100),
+  c(100, 500)
+)
+
+# Step 8: Perform Multiple Randomized Iterations
+n_iterations <- 100
+results <- list()
+
+for (i in 1:n_iterations) {
+  cat("Iteration", i, "\n")
+  
+  # Randomize transects
+  randomized_metadata <- randomize_transects(sarcodes_metadata)
+  
+  # Subset OTU table
+  randomized_metadata$Sample_ID <- gsub("-", ".", randomized_metadata$Sample_ID)
+  otu_subset <- otu_binary[, colnames(otu_binary) %in% randomized_metadata$Sample_ID]
+  
+  # Reorder metadata to match the OTU table
+  randomized_metadata <- randomized_metadata[match(colnames(otu_subset), randomized_metadata$Sample_ID), ]
+  
+  # Transpose the OTU table and add distances
+  otu_randomized_with_distance <- data.frame(
+    Distance = randomized_metadata$Distance,
+    t(otu_subset)
+  )
+  
+  # Calculate beta diversity for each distance pair
+  iteration_results <- do.call(
+    rbind,
+    lapply(distance_pairs, function(pair) {
+      calculate_beta_diversity_between_distances(pair[1], pair[2], otu_randomized_with_distance)
+    })
+  )
+  
+  # Add iteration column
+  iteration_results$Iteration <- i
+  results[[i]] <- iteration_results
+}
+
+# Step 9: Combine Results Across Iterations
+final_results <- do.call(rbind, results)
+
+# Step 10: Summarize Results Across Iterations
+summary_results <- final_results %>%
+  group_by(Distance1, Distance2) %>%
+  summarise(
+    MeanTurnover = mean(Turnover, na.rm = TRUE),
+    SDTurnover = sd(Turnover, na.rm = TRUE),
+    MeanNestedness = mean(Nestedness, na.rm = TRUE),
+    SDNestedness = sd(Nestedness, na.rm = TRUE),
+    MeanTotalBetaDiversity = mean(TotalBetaDiversity, na.rm = TRUE),
+    SDTotalBetaDiversity = sd(TotalBetaDiversity, na.rm = TRUE)
+  )
+
+# Step 11: Save Results
+write.csv(final_results, "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Sarcodes/randomized_distance_beta_diversity_iterations.csv", row.names = FALSE)
+write.csv(summary_results, "/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Nestedness_Turnover/Sarcodes/randomized_distance_beta_diversity_summary.csv", row.names = FALSE)
+
+# Step 12: Visualize Results
+ggplot(final_results, aes(x = interaction(Distance1, Distance2))) +
+  geom_boxplot(aes(y = Turnover, color = "Turnover")) +
+  geom_boxplot(aes(y = Nestedness, color = "Nestedness")) +
+  geom_boxplot(aes(y = TotalBetaDiversity, color = "Total Beta Diversity")) +
+  labs(
+    title = "Randomized Beta Diversity Metrics Between Distance Classes (100 Iterations)",
+    x = "Distance Pair",
+    y = "Beta Diversity Metric"
+  ) +
+  theme_minimal() +
+  scale_color_manual(values = c("Turnover" = "blue", "Nestedness" = "red", "Total Beta Diversity" = "green")) +
+  theme(legend.title = element_blank())
+
+# Save Plot
+ggsave("randomized_beta_diversity_between_distances.png", width = 12, height = 8)
+

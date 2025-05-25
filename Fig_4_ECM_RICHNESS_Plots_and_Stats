@@ -1,0 +1,113 @@
+
+##########
+PLOT ECM OTU RICHNESS PER DISTANCE CLASS (both species)
+##########
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# File paths
+otu_table_path = '/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+metadata_path = '/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/metadata.csv'
+output_path = '/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Exclusion_of_ECM/ECM_Richness_over_Distance/ECM_Richness_Barplot.svg'
+
+# Load data
+otu = pd.read_csv(otu_table_path, index_col=0)
+meta = pd.read_csv(metadata_path)
+meta.columns = meta.columns.str.lower().str.strip()
+
+# Filter for soil samples
+soil_meta = meta[meta['sample_type'].str.lower() == 'soil']
+
+# Function to count OTUs > 0 per sample group
+def richness_by_distance(df, meta, host):
+    subset = meta[meta['mh_host'].str.lower() == host.lower()]
+    grouped = subset.groupby('distance')['sample_id'].apply(list)
+    richness = []
+    for dist, samples in grouped.items():
+        otu_subset = df[samples]
+        present = otu_subset.gt(0)
+        count = present.sum(axis=1).gt(0).sum()
+        richness.append((dist, count))
+    return pd.DataFrame(richness, columns=['Distance', 'ECM_OTUs']).assign(Host=host.capitalize())
+
+# Generate data
+sarc_df = richness_by_distance(otu, soil_meta, 'Sarcodes')
+cora_df = richness_by_distance(otu, soil_meta, 'Corallorhiza')
+richness_df = pd.concat([sarc_df, cora_df]).sort_values(['Host', 'Distance'])
+
+# Plot
+fig, axs = plt.subplots(1, 2, figsize=(12, 6), sharey=True)
+
+for ax, (host, color) in zip(axs, [('Sarcodes', 'orangered'), ('Corallorhiza', 'mediumvioletred')]):
+    data = richness_df[richness_df['Host'] == host]
+    ax.bar(data['Distance'], data['ECM_OTUs'], color=color)
+    ax.set_title(f'Average ECM OTU Richness\nby Distance Class ({host})', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Distance Class (cm)', fontsize=12, fontweight='bold')
+    ax.set_xticks(data['Distance'])
+    ax.set_xticklabels([f"{d} cm" for d in data['Distance']], fontsize=11, fontweight='bold')
+    ax.tick_params(axis='y', labelsize=11)
+axs[0].set_ylabel('Number of ECM OTUs', fontsize=12, fontweight='bold')
+
+plt.tight_layout()
+plt.savefig(output_path, format='svg')
+plt.show()
+
+
+#########
+KRUSKAL-WALLIS TEST FOR SIGNIFICANT CHANGES IN ECM OTU RICHNESS OVER DISTANCE
+#########
+
+# Load required packages
+library(readr)
+library(dplyr)
+library(rstatix)
+
+# File paths
+otu_path <- "/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/MH_phyloseq_RA_otu_table.csv"
+meta_path <- "/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Relative_Abundance/metadata.csv"
+output_csv <- "/Users/cbivins/Desktop/Mycoheterotroph_Project_NEATER/Exclusion_of_ECM/ECM_Richness_over_Distance/ECM_Richness_Stats.csv"
+
+# Load data
+otu <- read_csv(otu_path)
+meta <- read_csv(meta_path) %>% rename_with(tolower)
+
+# Prepare presence/absence OTU table
+otu_pa <- otu %>%
+  column_to_rownames(var = names(otu)[1]) %>%
+  mutate(across(everything(), ~ ifelse(. > 0, 1, 0)))
+
+# Calculate richness per sample
+richness <- colSums(otu_pa)
+rich_df <- data.frame(sample_id = names(richness), richness = richness)
+
+# Merge with metadata
+meta_merged <- meta %>%
+  filter(sample_type == "Soil") %>%
+  inner_join(rich_df, by = c("sample_id"))
+
+# Function to perform Kruskal-Wallis + Dunn test
+run_ecm_tests <- function(df, host_label) {
+  sub <- df %>%
+    filter(mh_host == host_label) %>%
+    mutate(distance = factor(distance))
+
+  kw <- kruskal_test(richness ~ distance, data = sub)
+  dunn <- dunn_test(richness ~ distance, data = sub, p.adjust.method = "bonferroni")
+
+  dunn %>%
+    mutate(Species = host_label,
+           Kruskal_ChiSq = kw$statistic,
+           Kruskal_p = kw$p) %>%
+    select(Species, group1, group2, Z, p, p.adj, Kruskal_ChiSq, Kruskal_p)
+}
+
+# Run tests for both species
+sarcodes_results <- run_ecm_tests(meta_merged, "Sarcodes")
+corallorhiza_results <- run_ecm_tests(meta_merged, "Corallorhiza")
+all_results <- bind_rows(sarcodes_results, corallorhiza_results)
+
+# Save to CSV
+write_csv(all_results, output_csv)
+print("Kruskal-Wallis + Dunn test results saved:")
+print(output_csv)

@@ -1,0 +1,66 @@
+####### 
+PEARSON CORRELATION AND PAIRED T-TEST FOR C. STRIATA DETECTION PROBABILITIES
+#######
+
+import pandas as pd
+from scipy.stats import ttest_rel, pearsonr
+
+# Load data
+data = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Detection_Probabilities/Corallorhiza/CSVs/otus_lower_detection_prob_corallorhiza.csv')
+
+# Calculate correlation
+correlation, p_value_corr = pearsonr(data['NonRootball'], data['Rootball'])
+print(f"Pearson Correlation: {correlation}, P-value: {p_value_corr}")
+
+# Perform paired t-test
+t_stat, p_value_ttest = ttest_rel(data['NonRootball'], data['Rootball'])
+print(f"Paired T-test: t-statistic = {t_stat}, p-value = {p_value_ttest}")
+
+# Prepare results for saving
+results = {
+    'Metric': ['Pearson Correlation', 'Paired T-test'],
+    'Statistic': [correlation, t_stat],
+    'P-value': [p_value_corr, p_value_ttest]
+}
+results_df = pd.DataFrame(results)
+
+# Save results to a CSV file
+output_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Detection_Probabilities/Corallorhiza/CSVs/test_results.csv'
+results_df.to_csv(output_path, index=False)
+
+print(f"Test results saved to {output_path}")
+
+
+####### 
+PEARSON CORRELATION AND PAIRED T-TEST FOR S. SANGUINEA DETECTION PROBABILITIES
+#######
+
+import pandas as pd
+from scipy.stats import ttest_rel, pearsonr
+
+# Load data
+data = pd.read_csv('/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Detection_Probabilities/Sarcodes/CSVs/otus_lower_detection_prob_sarcodes.csv')
+
+# Calculate correlation
+correlation, p_value_corr = pearsonr(data['NonRootball'], data['Rootball'])
+print(f"Pearson Correlation: {correlation}, P-value: {p_value_corr}")
+
+# Perform paired t-test
+t_stat, p_value_ttest = ttest_rel(data['NonRootball'], data['Rootball'])
+print(f"Paired T-test: t-statistic = {t_stat}, p-value = {p_value_ttest}")
+
+# Prepare results for saving
+results = {
+    'Metric': ['Pearson Correlation', 'Paired T-test'],
+    'Statistic': [correlation, t_stat],
+    'P-value': [p_value_corr, p_value_ttest]
+}
+results_df = pd.DataFrame(results)
+
+# Save results to a CSV file
+output_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Exclusion_of_ECM/Detection_Probabilities/Sarcodes/CSVs/test_results.csv'
+results_df.to_csv(output_path, index=False)
+
+print(f"Test results saved to {output_path}")
+
+

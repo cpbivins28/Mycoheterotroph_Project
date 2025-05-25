@@ -1,0 +1,515 @@
+#######
+ PLOTTING PROXIMITY-BASED AVERAGE RELATIVE ABUNDANCE FOR OTU511 (R. ELLENAE - SOIL)
+#######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# File paths
+otu_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+metadata_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv'
+
+# Load the data
+otu_table = pd.read_csv(otu_table_path)
+metadata = pd.read_csv(metadata_path)
+
+# Filter OTU table for OTU511
+otu511_data = otu_table[otu_table['Unnamed: 0'] == 'OTU511']
+
+# Transpose OTU table to make samples rows for merging
+otu511_transposed = otu511_data.set_index('Unnamed: 0').T.reset_index()
+otu511_transposed.columns = ['Sample_ID', 'Relative_Abundance']
+
+# Filter metadata for Sarcodes samples
+sarcodes_metadata = metadata[metadata['MH_Host'] == 'Sarcodes']
+
+# Merge OTU511 data with Sarcodes metadata
+otu511_sarcodes = otu511_transposed.merge(
+    sarcodes_metadata[['Sample_ID', 'Distance']],
+    on='Sample_ID'
+)
+
+# Calculate average relative abundance by distance
+otu511_avg_by_distance = otu511_sarcodes.groupby('Distance')['Relative_Abundance'].mean().reset_index()
+
+# Define color scheme
+colors = ['#D32F2F', '#E64A19', '#F57C00', '#FF9800', '#FFC107']
+
+# Create the plot
+plt.figure(figsize=(8, 5))
+plt.bar(
+    range(len(otu511_avg_by_distance['Distance'])),
+    otu511_avg_by_distance['Relative_Abundance'],
+    color=colors,
+    tick_label=otu511_avg_by_distance['Distance']
+)
+plt.title('Average Relative Abundance of OTU511 Across Distance Classes (Sarcodes)')
+plt.xlabel('Distance Class (cm)')
+plt.ylabel('Average Relative Abundance')
+plt.grid(False)  # Ensure no gridlines are shown
+
+# Save the plot as an SVG
+output_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Proximity_Based_Abundance/R.ellenae/OTU511_Sarcodes_Relative_Abundance.svg'
+plt.savefig(output_path, format='svg')
+plt.show()
+
+#######
+KRUSKAL-WALLIS TEST FOR PROXIMITY-BASED AVERAGE RELATIVE ABUNDANCE OF OTU511 
+#######
+
+import pandas as pd
+import numpy as np
+from scipy.stats import f_oneway, kruskal, shapiro, levene
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
+from scikit_posthocs import posthoc_dunn
+
+# File paths
+otu_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+metadata_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv'
+output_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Proximity_Based_Abundance/R.ellenae/OTU511_Test_Results.csv'
+
+# Load the data
+otu_table = pd.read_csv(otu_table_path)
+metadata = pd.read_csv(metadata_path)
+
+# Filter OTU table for OTU511
+otu511_data = otu_table[otu_table['Unnamed: 0'] == 'OTU511']
+
+# Transpose OTU table to make samples rows for merging
+otu511_transposed = otu511_data.set_index('Unnamed: 0').T.reset_index()
+otu511_transposed.columns = ['Sample_ID', 'Relative_Abundance']
+
+# Filter metadata for Sarcodes samples
+sarcodes_metadata = metadata[metadata['MH_Host'] == 'Sarcodes']
+
+# Merge OTU511 data with Sarcodes metadata
+otu511_sarcodes = otu511_transposed.merge(
+    sarcodes_metadata[['Sample_ID', 'Distance']],
+    on='Sample_ID'
+)
+
+# Group data by distance
+groups = [
+    group['Relative_Abundance'].values
+    for _, group in otu511_sarcodes.groupby('Distance')
+]
+
+# Check assumptions for ANOVA
+# 1. Normality using Shapiro-Wilk test
+normality_results = [shapiro(group)[1] for group in groups]  # Extract p-values
+all_normal = all(p > 0.05 for p in normality_results)
+
+# 2. Homogeneity of variances using Levene's test
+levene_p = levene(*groups).pvalue
+homogeneous_variances = levene_p > 0.05
+
+# Prepare results dictionary
+results = {
+    "Test": [],
+    "Statistic": [],
+    "p-value": []
+}
+
+# Determine appropriate test
+if all_normal and homogeneous_variances:
+    anova_result = f_oneway(*groups)
+    results["Test"].append("ANOVA")
+    results["Statistic"].append(anova_result.statistic)
+    results["p-value"].append(anova_result.pvalue)
+
+    # Post-hoc test if significant
+    if anova_result.pvalue < 0.05:
+        tukey = pairwise_tukeyhsd(
+            endog=otu511_sarcodes['Relative_Abundance'],
+            groups=otu511_sarcodes['Distance'],
+            alpha=0.05
+        )
+        tukey_results = pd.DataFrame(data=tukey.summary_data())
+        tukey_results.to_csv(output_path.replace("OTU511_Test_Results.csv", "Tukey_HSD_Results.csv"), index=False)
+else:
+    kruskal_result = kruskal(*groups)
+    results["Test"].append("Kruskal-Wallis")
+    results["Statistic"].append(kruskal_result.statistic)
+    results["p-value"].append(kruskal_result.pvalue)
+
+    # Post-hoc test if significant
+    if kruskal_result.pvalue < 0.05:
+        dunn = posthoc_dunn(
+            otu511_sarcodes, 
+            val_col='Relative_Abundance', 
+            group_col='Distance', 
+            p_adjust='bonferroni'
+        )
+        dunn.to_csv(output_path.replace("OTU511_Test_Results.csv", "Dunn_Posthoc_Results.csv"))
+
+# Output test assumptions
+results["Test"].append("Normality (Shapiro-Wilk)")
+results["Statistic"].append("N/A")
+results["p-value"].append(normality_results)
+
+results["Test"].append("Homogeneity of Variance (Levene)")
+results["Statistic"].append("N/A")
+results["p-value"].append(levene_p)
+
+# Save results to CSV
+pd.DataFrame(results).to_csv(output_path, index=False)
+
+#######
+ PLOTTING PROXIMITY-BASED AVERAGE RELATIVE ABUNDANCE FOR OTU8 (T. FUSCOCINEREA - SOIL)
+#######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# File paths
+otu_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+metadata_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv'
+output_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Proximity_Based_Abundance/T.fuscocinerea/Soil/OTU8_Corallorhiza_Soil.svg'
+
+# Load the data
+otu_table = pd.read_csv(otu_table_path)
+metadata = pd.read_csv(metadata_path)
+
+# Filter OTU table for OTU8
+otu8_data = otu_table[otu_table['Unnamed: 0'] == 'OTU8']
+
+# Transpose OTU table to make samples rows for merging
+otu8_transposed = otu8_data.set_index('Unnamed: 0').T.reset_index()
+otu8_transposed.columns = ['Sample_ID', 'Relative_Abundance']
+
+# Filter metadata for Corallorhiza soil samples
+corallorhiza_metadata = metadata[
+    (metadata['MH_Host'] == 'Corallorhiza') & (metadata['Sample_Type'] == 'Soil')
+]
+
+# Merge OTU8 data with Corallorhiza soil metadata
+otu8_corallorhiza = otu8_transposed.merge(
+    corallorhiza_metadata[['Sample_ID', 'Distance']],
+    on='Sample_ID'
+)
+
+# Calculate average relative abundance by distance
+otu8_avg_by_distance = otu8_corallorhiza.groupby('Distance')['Relative_Abundance'].mean().reset_index()
+
+# Define exact color scheme for the distance classes
+specified_colors = ['#6E0374', '#A2057D', '#D32992', '#F05D9F', '#F794B1']
+
+# Create the plot
+plt.figure(figsize=(8, 5))
+plt.bar(
+    range(len(otu8_avg_by_distance['Distance'])),
+    otu8_avg_by_distance['Relative_Abundance'],
+    color=specified_colors,
+    tick_label=otu8_avg_by_distance['Distance']
+)
+plt.title('Average Relative Abundance of OTU8 Across Distance Classes (Corallorhiza Soil Samples)')
+plt.xlabel('Distance Class (cm)')
+plt.ylabel('Average Relative Abundance')
+plt.grid(False)  # Ensure no gridlines are shown
+
+# Save the plot as an SVG
+plt.savefig(output_path, format='svg')
+plt.show()
+
+#######
+KRUSKAL-WALLIS TEST FOR PROXIMITY-BASED AVERAGE RELATIVE ABUNDANCE OF OTU8 - SOIL 
+#######
+
+import pandas as pd
+from scipy.stats import f_oneway, kruskal, shapiro, levene
+from scikit_posthocs import posthoc_dunn
+
+# File paths
+otu_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+metadata_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv'
+output_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Proximity_Based_Abundance/T.fuscocinerea/Soil/OTU8_Corallorhiza_Soil_Stats.csv'
+
+# Load the data
+otu_table = pd.read_csv(otu_table_path)
+metadata = pd.read_csv(metadata_path)
+
+# Filter OTU table for OTU8
+otu8_data = otu_table[otu_table['Unnamed: 0'] == 'OTU8']
+
+# Transpose OTU table to make samples rows for merging
+otu8_transposed = otu8_data.set_index('Unnamed: 0').T.reset_index()
+otu8_transposed.columns = ['Sample_ID', 'Relative_Abundance']
+
+# Filter metadata for Corallorhiza soil samples
+corallorhiza_metadata = metadata[
+    (metadata['MH_Host'] == 'Corallorhiza') & (metadata['Sample_Type'] == 'Soil')
+]
+
+# Merge OTU8 data with Corallorhiza soil metadata
+otu8_corallorhiza = otu8_transposed.merge(
+    corallorhiza_metadata[['Sample_ID', 'Distance']],
+    on='Sample_ID'
+)
+
+# Group data by distance
+groups = [
+    group['Relative_Abundance'].values
+    for _, group in otu8_corallorhiza.groupby('Distance')
+]
+
+# Check assumptions for ANOVA
+# 1. Normality using Shapiro-Wilk test
+normality_results = [shapiro(group)[1] for group in groups]  # Extract p-values
+all_normal = all(p > 0.05 for p in normality_results)
+
+# 2. Homogeneity of variances using Levene's test
+levene_p = levene(*groups).pvalue
+homogeneous_variances = levene_p > 0.05
+
+# Prepare results dictionary
+results = {
+    "Test": [],
+    "Statistic": [],
+    "p-value": []
+}
+
+# Determine appropriate test
+if all_normal and homogeneous_variances:
+    anova_result = f_oneway(*groups)
+    results["Test"].append("ANOVA")
+    results["Statistic"].append(anova_result.statistic)
+    results["p-value"].append(anova_result.pvalue)
+
+    # Print ANOVA results
+    print("ANOVA Results:")
+    print(f"F-statistic: {anova_result.statistic}")
+    print(f"p-value: {anova_result.pvalue}")
+
+    # Post-hoc test if significant
+    if anova_result.pvalue < 0.05:
+        print("Significant result. Running Tukey's HSD post-hoc test.")
+        tukey = pairwise_tukeyhsd(
+            endog=otu8_corallorhiza['Relative_Abundance'],
+            groups=otu8_corallorhiza['Distance'],
+            alpha=0.05
+        )
+        print(tukey)
+        tukey_results = pd.DataFrame(data=tukey.summary_data())
+        tukey_results.to_csv(output_path.replace("OTU8_Corallorhiza_Soil_Stats.csv", "Tukey_HSD_Results.csv"), index=False)
+else:
+    kruskal_result = kruskal(*groups)
+    results["Test"].append("Kruskal-Wallis")
+    results["Statistic"].append(kruskal_result.statistic)
+    results["p-value"].append(kruskal_result.pvalue)
+
+    # Print Kruskal-Wallis results
+    print("Kruskal-Wallis Results:")
+    print(f"H-statistic: {kruskal_result.statistic}")
+    print(f"p-value: {kruskal_result.pvalue}")
+
+    # Post-hoc test if significant
+    if kruskal_result.pvalue < 0.05:
+        print("Significant result. Running Dunn's post-hoc test.")
+        dunn = posthoc_dunn(
+            otu8_corallorhiza, 
+            val_col='Relative_Abundance', 
+            group_col='Distance', 
+            p_adjust='bonferroni'
+        )
+        print("Dunn's Test Results:")
+        print(dunn)
+        dunn.to_csv(output_path.replace("OTU8_Corallorhiza_Soil_Stats.csv", "Dunn_Posthoc_Results.csv"))
+
+# Output test assumptions
+results["Test"].append("Normality (Shapiro-Wilk)")
+results["Statistic"].append("N/A")
+results["p-value"].append(normality_results)
+
+results["Test"].append("Homogeneity of Variance (Levene)")
+results["Statistic"].append("N/A")
+results["p-value"].append(levene_p)
+
+# Print assumptions
+print("\nTest assumptions:")
+print(f"Normality test p-values: {normality_results}")
+print(f"Levene's test p-value: {levene_p}")
+
+# Save results to CSV
+pd.DataFrame(results).to_csv(output_path, index=False)
+
+#######
+ PLOTTING PROXIMITY-BASED AVERAGE RELATIVE ABUNDANCE FOR OTU8 (T. FUSCOCINEREA - TIPS)
+#######
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# File paths
+otu_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+metadata_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv'
+output_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Proximity_Based_Abundance/T.fuscocinerea/Tips/OTU8_Corallorhiza_Tips_DarkGray.svg'
+
+# Load the data
+otu_table = pd.read_csv(otu_table_path)
+metadata = pd.read_csv(metadata_path)
+
+# Filter OTU table for OTU8
+otu8_data = otu_table[otu_table['Unnamed: 0'] == 'OTU8']
+
+# Transpose OTU table to make samples rows for merging
+otu8_transposed = otu8_data.set_index('Unnamed: 0').T.reset_index()
+otu8_transposed.columns = ['Sample_ID', 'Relative_Abundance']
+
+# Filter metadata for Corallorhiza tips samples
+corallorhiza_tips_metadata = metadata[
+    (metadata['MH_Host'] == 'Corallorhiza') & (metadata['Sample_Type'] == 'Tips')
+]
+
+# Merge OTU8 data with Corallorhiza tips metadata
+otu8_corallorhiza_tips = otu8_transposed.merge(
+    corallorhiza_tips_metadata[['Sample_ID', 'Distance']],
+    on='Sample_ID'
+)
+
+# Calculate average relative abundance by distance
+otu8_avg_by_distance_tips = otu8_corallorhiza_tips.groupby('Distance')['Relative_Abundance'].mean().reset_index()
+
+# Define a color-blind friendly palette with a darker gray for the 0 cm bar
+adjusted_colors = ['#404040', '#636363', '#969696', '#BDBDBD', '#D9D9D9']
+
+# Create the plot
+plt.figure(figsize=(8, 5))
+plt.bar(
+    range(len(otu8_avg_by_distance_tips['Distance'])),
+    otu8_avg_by_distance_tips['Relative_Abundance'],
+    color=adjusted_colors,
+    tick_label=otu8_avg_by_distance_tips['Distance']
+)
+plt.title('Average Relative Abundance of OTU8 Across Distance Classes (Corallorhiza Tips Samples)')
+plt.xlabel('Distance Class (cm)')
+plt.ylabel('Average Relative Abundance')
+plt.grid(False)  # Ensure no gridlines are shown
+
+# Save the plot as an SVG
+plt.savefig(output_path, format='svg')
+plt.show()
+
+
+
+#######
+KRUSKAL-WALLIS TEST FOR PROXIMITY-BASED AVERAGE RELATIVE ABUNDANCE OF OTU8 - TIPS 
+#######
+
+import pandas as pd
+from scipy.stats import f_oneway, kruskal, shapiro, levene, mannwhitneyu
+from scikit_posthocs import posthoc_dunn
+
+# File paths
+otu_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+metadata_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv'
+output_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Proximity_Based_Abundance/T.fuscocinerea/Tips/OTU8_Corallorhiza_Tips_Stats.csv'
+
+# Load the data
+otu_table = pd.read_csv(otu_table_path)
+metadata = pd.read_csv(metadata_path)
+
+# Filter OTU table for OTU8
+otu8_data = otu_table[otu_table['Unnamed: 0'] == 'OTU8']
+
+# Transpose OTU table to make samples rows for merging
+otu8_transposed = otu8_data.set_index('Unnamed: 0').T.reset_index()
+otu8_transposed.columns = ['Sample_ID', 'Relative_Abundance']
+
+# Filter metadata for Corallorhiza tips samples
+corallorhiza_tips_metadata = metadata[
+    (metadata['MH_Host'] == 'Corallorhiza') & (metadata['Sample_Type'] == 'Tips')
+]
+
+# Merge OTU8 data with Corallorhiza tips metadata
+otu8_corallorhiza_tips = otu8_transposed.merge(
+    corallorhiza_tips_metadata[['Sample_ID', 'Distance']],
+    on='Sample_ID'
+)
+
+# Group data by distance
+groups = [
+    group['Relative_Abundance'].values
+    for _, group in otu8_corallorhiza_tips.groupby('Distance')
+]
+
+# Check assumptions for ANOVA
+# 1. Normality using Shapiro-Wilk test
+normality_results = [shapiro(group)[1] for group in groups]  # Extract p-values
+all_normal = all(p > 0.05 for p in normality_results)
+
+# 2. Homogeneity of variances using Levene's test
+levene_p = levene(*groups).pvalue
+homogeneous_variances = levene_p > 0.05
+
+# Prepare results dictionary
+results = {
+    "Test": [],
+    "Statistic": [],
+    "p-value": []
+}
+
+# Determine appropriate test
+if all_normal and homogeneous_variances:
+    anova_result = f_oneway(*groups)
+    results["Test"].append("ANOVA")
+    results["Statistic"].append(anova_result.statistic)
+    results["p-value"].append(anova_result.pvalue)
+
+    # Print ANOVA results
+    print("ANOVA Results:")
+    print(f"F-statistic: {anova_result.statistic}")
+    print(f"p-value: {anova_result.pvalue}")
+
+    # Post-hoc test if significant
+    if anova_result.pvalue < 0.05:
+        print("Significant result. Running Tukey's HSD post-hoc test.")
+        tukey = pairwise_tukeyhsd(
+            endog=otu8_corallorhiza_tips['Relative_Abundance'],
+            groups=otu8_corallorhiza_tips['Distance'],
+            alpha=0.05
+        )
+        print(tukey)
+        tukey_results = pd.DataFrame(data=tukey.summary_data())
+        tukey_results.to_csv(output_path.replace("OTU8_Corallorhiza_Tips_Stats.csv", "Tukey_HSD_Results.csv"), index=False)
+else:
+    kruskal_result = kruskal(*groups)
+    results["Test"].append("Kruskal-Wallis")
+    results["Statistic"].append(kruskal_result.statistic)
+    results["p-value"].append(kruskal_result.pvalue)
+
+    # Print Kruskal-Wallis results
+    print("Kruskal-Wallis Results:")
+    print(f"H-statistic: {kruskal_result.statistic}")
+    print(f"p-value: {kruskal_result.pvalue}")
+
+# Run Mann-Whitney U test specifically for 0 cm vs 500 cm comparison
+print("\nRunning Mann-Whitney U test for 0 cm vs. 500 cm.")
+distance_0 = otu8_corallorhiza_tips[otu8_corallorhiza_tips['Distance'] == 0]['Relative_Abundance']
+distance_500 = otu8_corallorhiza_tips[otu8_corallorhiza_tips['Distance'] == 500]['Relative_Abundance']
+mannwhitney_result = mannwhitneyu(distance_0, distance_500, alternative='two-sided')
+print(f"Mann-Whitney U test results for 0 cm vs. 500 cm:\nU-statistic: {mannwhitney_result.statistic}, p-value: {mannwhitney_result.pvalue}")
+
+# Save Mann-Whitney U results
+results["Test"].append("Mann-Whitney U (0 vs. 500)")
+results["Statistic"].append(mannwhitney_result.statistic)
+results["p-value"].append(mannwhitney_result.pvalue)
+
+# Output test assumptions
+results["Test"].append("Normality (Shapiro-Wilk)")
+results["Statistic"].append("N/A")
+results["p-value"].append(normality_results)
+
+results["Test"].append("Homogeneity of Variance (Levene)")
+results["Statistic"].append("N/A")
+results["p-value"].append(levene_p)
+
+# Print assumptions
+print("\nTest assumptions:")
+print(f"Normality test p-values: {normality_results}")
+print(f"Levene's test p-value: {levene_p}")
+
+# Save results to CSV
+pd.DataFrame(results).to_csv(output_path, index=False)
+
+
+

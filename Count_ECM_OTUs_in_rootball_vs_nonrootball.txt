@@ -1,0 +1,138 @@
+######## 
+CALCULATE ECM OTUS IN ROOTBALL VS NON ROOTBALL SAMPLES - C. STRIATA
+######## 
+
+import pandas as pd
+
+# Load the data files
+otu_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+guild_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv'
+metadata_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv'
+
+otu_table = pd.read_csv(otu_table_path, index_col=0)
+guild_table = pd.read_csv(guild_table_path)
+metadata = pd.read_csv(metadata_path)
+
+# Strip whitespace from relevant columns
+metadata['MH_Host'] = metadata['MH_Host'].str.strip()
+metadata['Sample_Type'] = metadata['Sample_Type'].str.strip()
+
+# Step 1: Filter metadata for Corallorhiza samples and exclude tips
+corallorhiza_metadata = metadata[
+    (metadata['MH_Host'] == 'Corallorhiza') & (metadata['Sample_Type'] == 'Soil')
+]
+print("Filtered Metadata (Corallorhiza Soil Samples):")
+print(corallorhiza_metadata)
+
+# Step 2: Extract rootball and non-rootball samples based on Distance
+rootball_samples = corallorhiza_metadata[corallorhiza_metadata['Distance'] == 0]['Sample_ID']
+non_rootball_samples = corallorhiza_metadata[corallorhiza_metadata['Distance'] != 0]['Sample_ID']
+print("Rootball Samples:")
+print(rootball_samples)
+print("Non-Rootball Samples:")
+print(non_rootball_samples)
+
+# Step 3: Subset OTU table for Corallorhiza samples
+corallorhiza_otu_table = otu_table[corallorhiza_metadata['Sample_ID']]
+print("Filtered OTU Table (Corallorhiza Samples):")
+print(corallorhiza_otu_table)
+
+# Step 4: Identify ectomycorrhizal OTUs
+ectomycorrhizal_otus = guild_table[guild_table['primary_lifestyle'] == 'ectomycorrhizal']['OTU_ID']
+print("Ectomycorrhizal OTUs:")
+print(ectomycorrhizal_otus)
+
+# Step 5: Filter OTU table for ectomycorrhizal OTUs
+ectomycorrhizal_otu_table = corallorhiza_otu_table.loc[ectomycorrhizal_otus]
+print("Filtered OTU Table (Ectomycorrhizal OTUs):")
+print(ectomycorrhizal_otu_table)
+
+# Step 6: Subset OTU table for rootball and non-rootball samples
+otu_table_rootball = ectomycorrhizal_otu_table[rootball_samples]
+otu_table_non_rootball = ectomycorrhizal_otu_table[non_rootball_samples]
+print("OTU Table (Rootball Samples):")
+print(otu_table_rootball)
+print("OTU Table (Non-Rootball Samples):")
+print(otu_table_non_rootball)
+
+# Step 7: Identify OTUs present in non-rootball samples
+non_rootball_otus = otu_table_non_rootball.index[otu_table_non_rootball.sum(axis=1) > 0]
+print("OTUs in Non-Rootball Samples:")
+print(non_rootball_otus)
+
+# Step 8: Identify OTUs present in rootball samples
+rootball_otus = otu_table_rootball.index[otu_table_rootball.sum(axis=1) > 0]
+print("OTUs in Rootball Samples:")
+print(rootball_otus)
+
+# Step 9: Determine OTUs present in non-rootball but absent in rootball samples
+otus_non_rootball_only = set(non_rootball_otus) - set(rootball_otus)
+print("OTUs Present in Non-Rootball Only:")
+print(otus_non_rootball_only)
+
+# Step 10: Calculate percentage
+total_otus_non_rootball = len(non_rootball_otus)
+absent_inside_count = len(otus_non_rootball_only)
+percentage_absent_inside = (absent_inside_count / total_otus_non_rootball) * 100 if total_otus_non_rootball > 0 else 0
+
+# Results
+results = {
+    "Total OTUs in non-rootball samples": total_otus_non_rootball,
+    "OTUs present outside and absent inside": absent_inside_count,
+    "Percentage of OTUs present outside and absent inside": percentage_absent_inside,
+}
+print("Results:")
+print(results)
+
+######## 
+CALCULATE ECM OTUS IN ROOTBALL VS NON ROOTBALL SAMPLES - S. SANGUINEA
+######## 
+
+import pandas as pd
+
+# Load the data files
+otu_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/MH_phyloseq_RA_otu_table.csv'
+guild_table_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/guild_table.csv'
+metadata_path = '/Users/christopherbivins/Desktop/Mycoheterotroph_Project_Neater/Relative_Abundance/metadata.csv'
+
+otu_table = pd.read_csv(otu_table_path, index_col=0)
+guild_table = pd.read_csv(guild_table_path)
+metadata = pd.read_csv(metadata_path)
+
+# Filter metadata for Sarcodes samples
+sarcodes_metadata = metadata[metadata['MH_Host'] == 'Sarcodes']
+
+# Extract rootball and non-rootball samples based on Distance
+rootball_samples = sarcodes_metadata[sarcodes_metadata['Distance'] == 0]['Sample_ID']
+non_rootball_samples = sarcodes_metadata[sarcodes_metadata['Distance'] != 0]['Sample_ID']
+
+# Identify ectomycorrhizal OTUs
+ectomycorrhizal_otus = guild_table[guild_table['primary_lifestyle'] == 'ectomycorrhizal']['OTU_ID']
+
+# Filter OTU table for ectomycorrhizal OTUs
+ectomycorrhizal_otu_table = otu_table.loc[ectomycorrhizal_otus]
+
+# Subset OTU table for rootball and non-rootball samples
+otu_table_rootball = ectomycorrhizal_otu_table[rootball_samples]
+otu_table_non_rootball = ectomycorrhizal_otu_table[non_rootball_samples]
+
+# Identify OTUs present in non-rootball samples
+otus_non_rootball = otu_table_non_rootball.index[otu_table_non_rootball.sum(axis=1) > 0]
+
+# Identify OTUs absent in rootball samples
+otus_rootball_absent = otu_table_rootball.index[otu_table_rootball.sum(axis=1) == 0]
+
+# Determine OTUs present in non-rootball and absent in rootball samples
+otus_present_outside_absent_inside = [otu for otu in otus_non_rootball if otu in otus_rootball_absent]
+
+# Calculate percentage
+total_otus_non_rootball = len(otus_non_rootball)
+absent_inside_count = len(otus_present_outside_absent_inside)
+percentage_absent_inside = (absent_inside_count / total_otus_non_rootball) * 100 if total_otus_non_rootball > 0 else 0
+
+# Results
+print(f"Total OTUs in non-rootball samples: {total_otus_non_rootball}")
+print(f"OTUs present outside and absent inside: {absent_inside_count}")
+print(f"Percentage of OTUs present outside and absent inside: {percentage_absent_inside:.2f}%")
+
+

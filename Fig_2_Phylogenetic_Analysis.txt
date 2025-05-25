@@ -1,0 +1,290 @@
+##### TOMENTELLA_TREE
+
+### Make a phylogenetic tree of all my Thelephoraceae OTUs combined with Craig Barret's Tomentella fuscocinerea ITS sequences from C. striata plants collected throughout the Sierras (including Fresno and Madera counties)
+
+## Download Barrett's sequences using accession IDs from 2010 paper Appendix 1:
+# Make text file of accession ID's for bulk download
+nano accession_ids.txt
+# Copy and paste the accession ID's:
+GU220616
+GU220617
+GU220618
+GU220619
+GU220620
+GU220621
+GU220622
+GU220623
+GU220624
+GU220625
+GU220626
+GU220627
+GU220628
+GU220629
+GU220630
+GU220631
+GU220632
+GU220641
+GU220652
+GU220661
+GU220670
+GU220693
+KJ462504 - Thelephora
+AF418613 - Russula
+
+## Create biopython script for bulk download of sequences using entrez:
+# make script file
+nano get_tomentella_sequences.py
+# copy and paste script in:
+from Bio import Entrez, SeqIO
+
+# Set the email address (required by NCBI)
+Entrez.email = "cpqbivins@gmail.com"  
+
+# Read the accession IDs from the file
+with open("accession_ids.txt", "r") as f:
+    accession_ids = f.read().strip().split("\n")
+
+# Open the output file for writing
+with open("sequences.fasta", "w") as output_fasta:
+    for accession_id in accession_ids:
+        # Fetch the sequence
+        handle = Entrez.efetch(db="nucleotide", id=accession_id, rettype="fasta", retmode="text")
+        
+        # Parse the sequence
+        seq_record = SeqIO.read(handle, "fasta")
+        
+        # Write to the output file
+        SeqIO.write(seq_record, output_fasta, "fasta")
+        
+        # Close the handle
+        handle.close()
+
+print("Sequences saved to sequences.fasta")
+
+
+## We now need to add in both the Thelephoraceae OTU ITS sequences from my dataset, as well as an outgroup sequence (Like Russula). The ITS sequences from my database are in /Users/christopherbivins/Desktop/metabarcoding/AMPTK_Outputs/taxonomyITS.otus.taxonomy.fa
+
+# Create a script to extract the ITS sequences from all of the Thelephoraceae OTUs
+nano get_thelephoraceae_seqs.py
+# Copy and paste the script in: 
+from Bio import SeqIO
+
+# File paths
+input_file = "/Users/christopherbivins/Desktop/metabarcoding/AMPTK_Outputs/taxonomyITS.otus.taxonomy.fa"
+output_file = "sequences.fasta"
+
+# List of OTU IDs to extract
+otu_ids = [
+    "OTU5", "OTU8", "OTU64", "OTU70", "OTU71", "OTU73", "OTU74", "OTU83", "OTU84", "OTU86",
+    "OTU151", "OTU187", "OTU196", "OTU207", "OTU233", "OTU242", "OTU249", "OTU266", "OTU291", "OTU382",
+    "OTU394", "OTU403", "OTU404", "OTU422", "OTU536", "OTU544", "OTU567", "OTU1095", "OTU1162", "OTU1167",
+    "OTU1269", "OTU1275", "OTU1388", "OTU1470", "OTU1562", "OTU3700", "OTU3764", "OTU4137", "OTU4427", "OTU4480"
+]
+
+# Read the existing records from output file
+existing_records = list(SeqIO.parse(output_file, "fasta"))
+
+# Extract and append the required OTUs
+with open(input_file, "r") as handle:
+    for record in SeqIO.parse(handle, "fasta"):
+        if record.id.split()[0] in otu_ids:
+            existing_records.append(record)
+
+# Write the combined records to output file
+with open(output_file, "w") as output_handle:
+    SeqIO.write(existing_records, output_handle, "fasta")
+
+
+## Align sequences in sequences.fasta using MAFFT
+mafft --auto sequences.fasta > aligned_sequences.fasta
+
+
+# I viewed aligned_sequences.fasta in Mesquite and it looks like the gaps need to be trimmed. I'm going to write a script to trim the gaps: 
+from Bio import AlignIO
+from Bio.Align import MultipleSeqAlignment
+from Bio.SeqRecord import SeqRecord
+from Bio.Seq import Seq
+# Define the regions to remove from each sequence (using 1-based indexing)
+removal_regions = [
+    (63, 69),
+    (99, 105),
+    (109, 112),
+    (130, 131),  
+    (142, 150),
+    (159, 160),  
+    (186, 192),
+    (201, 213),
+    (226, 233),
+    (249, 250),  
+    (255, 261),
+    (272, 275),
+    (280, 287),
+    (289, 290),  
+    (305, 310),
+    (321, 331),
+    (334, 350)
+]
+# Convert 1-based to 0-based indexing for Python
+removal_regions = [(start - 1, end) for start, end in removal_regions]
+# Function to remove regions from a sequence
+def remove_regions(seq, regions):
+    # Sort regions in reverse order to avoid index shifting during removal
+    regions = sorted(regions, key=lambda x: x[0], reverse=True)
+    # Create a mutable sequence
+    mutable_seq = list(seq)
+    for start, end in regions:
+        # Remove the region
+        del mutable_seq[start:end]
+    return ''.join(mutable_seq)
+# Read the original alignment file
+alignment = AlignIO.read("aligned_sequences.fasta", "fasta")
+# Create a new alignment to store sequences with the regions removed
+trimmed_alignment = MultipleSeqAlignment([])
+# Process each record in the alignment
+for record in alignment:
+    # Remove the specified regions from the sequence
+    trimmed_sequence = remove_regions(record.seq, removal_regions)
+    # Create a new SeqRecord with the trimmed sequence
+    trimmed_record = SeqRecord(Seq(trimmed_sequence), id=record.id, description=record.description)
+    # Add the trimmed SeqRecord to the new alignment
+    trimmed_alignment.append(trimmed_record)
+# Write the trimmed alignment to a new FASTA file
+AlignIO.write(trimmed_alignment, "trimmed_sequences.fasta", "fasta")
+print("Trimming completed. The trimmed alignment is saved as 'trimmed_sequences.fasta'.")
+
+
+# Now make the tree
+raxmlHPC-PTHREADS -T 48 -f a -s trimmed_sequences.fasta -n Tomentella_tree -w /media/telemeco-lab/DATA/mujic-lab/cbivins/tomentella_phylogeny/raxml_outputs -m GTRGAMMA -x 1234 -p 1234 -N 1000
+
+
+##### RHIZOPOGON_TREE
+
+### Let's try the same thing but for Rhizopogon ellenae
+nano accession_ids.txt
+# Accession ID's that are from Bruns and Bidartondo study identifying R. ellenae as mycobiont of Sarcodes sanguinea (these Accession IDS are called "Sarcodes mycobiont" in their paper):
+AF224489
+AF224276
+AF224486
+AF224487
+AF418613 - Russula
+
+# Get sequences
+nano get_rhizopogon_sequences.py
+# copy and paste script in:
+from Bio import Entrez, SeqIO
+
+# Set the email address (required by NCBI)
+Entrez.email = "cpqbivins@gmail.com"  
+
+# Read the accession IDs from the file
+with open("accession_ids.txt", "r") as f:
+    accession_ids = f.read().strip().split("\n")
+
+# Open the output file for writing
+with open("sequences.fasta", "w") as output_fasta:
+    for accession_id in accession_ids:
+        # Fetch the sequence
+        handle = Entrez.efetch(db="nucleotide", id=accession_id, rettype="fasta", retmode="text")
+        
+        # Parse the sequence
+        seq_record = SeqIO.read(handle, "fasta")
+        
+        # Write to the output file
+        SeqIO.write(seq_record, output_fasta, "fasta")
+        
+        # Close the handle
+        handle.close()
+
+print("Sequences saved to sequences.fasta")
+
+## We now need to add in both the Rhizopogonaceae OTU ITS sequences from my dataset, as well as an outgroup sequence (Like Russula). The ITS sequences from my database are in /Users/christopherbivins/Desktop/metabarcoding/AMPTK_Outputs/taxonomyITS.otus.taxonomy.fa
+
+# Create a script to extract the ITS sequences from all of the Rhizopogonaceae OTUs
+nano get_my_rhizopogonaceae_seqs.py
+# Copy and paste the script in: 
+from Bio import SeqIO
+
+# File paths
+input_file = "/Users/christopherbivins/Desktop/metabarcoding/AMPTK_Outputs/taxonomyITS.otus.taxonomy.fa"
+output_file = "sequences.fasta"
+
+# List of OTU IDs to extract  OTU511, OTU1146, OTU1919, OTU1228, OTU118  and OTU1781
+otu_ids = [
+    "OTU511", "OTU1146", "OTU1919", "OTU1228", "OTU118", "OTU1781"
+]
+
+# Read the existing records from output file
+existing_records = list(SeqIO.parse(output_file, "fasta"))
+
+# Extract and append the required OTUs
+with open(input_file, "r") as handle:
+    for record in SeqIO.parse(handle, "fasta"):
+        if record.id.split()[0] in otu_ids:
+            existing_records.append(record)
+
+# Write the combined records to output file
+with open(output_file, "w") as output_handle:
+    SeqIO.write(existing_records, output_handle, "fasta")
+
+## Align sequences in sequences.fasta using MAFFT
+mafft --auto sequences.fasta > aligned_sequences.fasta
+
+## Regions to trim:
+72-89
+147-165
+204-206
+222
+236-243
+331-334
+340
+346
+375
+
+# Script to trim the gaps: 
+from Bio import AlignIO
+from Bio.Align import MultipleSeqAlignment
+from Bio.SeqRecord import SeqRecord
+from Bio.Seq import Seq
+
+# Define the regions to remove from each sequence 
+removal_regions = [
+    (72, 89),  
+    (147, 165),
+    (204, 206),
+    (222, 243),
+    (331, 334),
+    (340, 340),
+    (346, 346),
+    (375, 375)  
+]
+# Convert 1-based to 0-based indexing for Python
+removal_regions = [(start - 1, end) for start, end in removal_regions]
+# Function to remove regions from a sequence
+def remove_regions(seq, regions):
+    # Sort regions in reverse order to avoid index shifting during removal
+    regions = sorted(regions, key=lambda x: x[0], reverse=True)
+    # Create a mutable sequence
+    mutable_seq = list(seq)
+    for start, end in regions:
+        # Remove the region
+        del mutable_seq[start:end]
+    return ''.join(mutable_seq)
+# Read the original alignment file
+alignment = AlignIO.read("aligned_sequences.fasta", "fasta")
+# Create a new alignment to store sequences with the regions removed
+trimmed_alignment = MultipleSeqAlignment([])
+# Process each record in the alignment
+for record in alignment:
+    # Remove the specified regions from the sequence
+    trimmed_sequence = remove_regions(record.seq, removal_regions)
+    # Create a new SeqRecord with the trimmed sequence
+    trimmed_record = SeqRecord(Seq(trimmed_sequence), id=record.id, description=record.description)
+    # Add the trimmed SeqRecord to the new alignment
+    trimmed_alignment.append(trimmed_record)
+# Write the trimmed alignment to a new FASTA file
+AlignIO.write(trimmed_alignment, "trimmed_sequences.fasta", "fasta")
+print("Trimming completed. The trimmed alignment is saved as 'trimmed_sequences.fasta'.")
+
+
+# Now make the tree
+raxmlHPC-PTHREADS -T 48 -f a -s trimmed_sequences.fasta -n Rhizopogon_tree -w /media/telemeco-lab/DATA/mujic-lab/cbivins/rhizopogon_phylogeny/raxml_outputs -m GTRGAMMA -x 1234 -p 1234 -N 1000
